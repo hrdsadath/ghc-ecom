@@ -1,0 +1,41 @@
+apiVersion: v2
+name: crockery-ecommerce
+description: A Helm chart for deploying the Crockery E-commerce application
+type: application
+
+# The version of the application
+version: 0.1.0
+
+# The version of the Helm chart
+appVersion: "1.0"
+
+# Define the dependencies for the chart
+dependencies:
+  - name: postgres
+    version: "10.3.0"
+    repository: "https://charts.bitnami.com/bitnami"
+
+# Define the values for the chart
+values:
+  image:
+    repository: your-docker-repo/crockery-ecommerce
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+  ingress:
+    enabled: true
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    hosts:
+      - host: your-domain.com
+        paths:
+          - /
+
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
