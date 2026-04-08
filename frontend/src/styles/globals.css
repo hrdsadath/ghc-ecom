@@ -567,10 +567,26 @@ button {
 
 /* Price */
 .product-price {
-    font-size: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    /* flex-wrap: wrap; */
+    margin-top: 12px;
+}
+
+.product-price-mrp {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+    opacity: 0.85;
+}
+
+.product-price-ghp {
+    font-size: 28px;
     font-weight: 800;
     color: var(--gold-light);
-    margin-top: 12px;
     letter-spacing: -0.5px;
 }
 
@@ -681,7 +697,15 @@ button {
     }
     
     .product-price {
-        font-size: 20px;
+        gap: 8px;
+    }
+
+    .product-price-ghp {
+        font-size: 24px;
+    }
+
+    .product-price-mrp {
+        font-size: 13px;
     }
     
     .product-card button {
@@ -711,8 +735,16 @@ button {
     }
     
     .product-price {
-        font-size: 18px;
+        gap: 6px;
         margin-top: 10px;
+    }
+
+    .product-price-ghp {
+        font-size: 22px;
+    }
+
+    .product-price-mrp {
+        font-size: 12px;
     }
     
     .product-actions {
@@ -930,12 +962,21 @@ button {
 
 .item-meta {
     display: flex;
-    align-items: center;
+    align-items: baseline;
+    flex-wrap: wrap;
     gap: 10px;
     margin-top: 4px;
 }
 
-.item-price {
+.item-price-mrp {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+}
+
+.item-price-ghp {
     font-size: 18px;
     font-weight: 800;
     color: var(--gold-light);

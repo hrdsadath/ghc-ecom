@@ -4,6 +4,7 @@ interface CartItem {
     id: string;
     name: string;
     description: string;
+    mrp?: number;
     price: number;
     imageUrl: string;
     quantity?: number;

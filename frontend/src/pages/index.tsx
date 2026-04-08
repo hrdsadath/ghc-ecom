@@ -87,6 +87,7 @@ const HomePage: React.FC = () => {
             id: '1',
             name: 'Ceramic Bowl',
             description: 'Beautiful handcrafted ceramic bowl perfect for serving',
+            mrp: 30.05,
             price: 24.99,
             imageUrl: nutsImg
         },
@@ -94,6 +95,7 @@ const HomePage: React.FC = () => {
             id: '2',
             name: 'Dinner Plate Set',
             description: 'Set of 4 elegant dinner plates',
+            mrp: 59.99,
             price: 49.99,
             imageUrl: canisterImg
         },
@@ -101,6 +103,7 @@ const HomePage: React.FC = () => {
             id: '3',
             name: 'Tea Cup',
             description: 'Delicate porcelain tea cup with handle',
+            mrp: 17.99,
             price: 12.99,
             imageUrl: cupImg
         },
@@ -108,6 +111,7 @@ const HomePage: React.FC = () => {
             id: '4',
             name: 'Serving Platter',
             description: 'Large serving platter for special occasions',
+            mrp: 69.99,
             price: 59.99,
             imageUrl: cutleryImg
         },
@@ -115,6 +119,7 @@ const HomePage: React.FC = () => {
             id: '5',
             name: 'Soup Bowl',
             description: 'Deep soup bowl with beautiful glaze',
+            mrp: 19.99,
             price: 15.99,
             imageUrl: kettleImg
         },
@@ -122,6 +127,7 @@ const HomePage: React.FC = () => {
             id: '6',
             name: 'Coffee Mug Set',
             description: 'Set of 2 cozy coffee mugs',
+            mrp: 29.99,
             price: 22.99,
             imageUrl: jugImg
         }

@@ -84,7 +84,10 @@ const CartPage: React.FC = () => {
                                         <h3>{item.name}</h3>
                                         <p className="item-desc">{item.description}</p>
                                         <div className="item-meta">
-                                            <span className="item-price">${item.price.toFixed(2)}</span>
+                                            {typeof item.mrp === 'number' && (
+                                                <span className="item-price-mrp">MRP: ${item.mrp.toFixed(2)}</span>
+                                            )}
+                                            <span className="item-price-ghp">GHP: ${item.price.toFixed(2)}</span>
                                         </div>
                                     </div>
                                     <button 
