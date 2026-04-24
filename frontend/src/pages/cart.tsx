@@ -32,7 +32,8 @@ const CartPage: React.FC = () => {
             <div>
                 <header className="header">
                     <div className="header-content">
-                        <div className="header-logo">🍽️ CrockeryShop</div>
+                        <div className="header-logo">🍽️ Glockery Home Center</div>
+                        <Link to="/" className="nav-link">← Back to Home</Link>
                     </div>
                 </header>
                 <div className="cart-container">
@@ -52,8 +53,8 @@ const CartPage: React.FC = () => {
         <div>
             <header className="header">
                 <div className="header-content">
-                    <div className="header-logo">🍽️ CrockeryShop</div>
-                    <Link to="/" className="back-to-home">← Back to Home</Link>
+                    <div className="header-logo">🍽️ Glockery Home Center</div>
+                    <Link to="/" className="nav-link">← Back to Home</Link>
                 </div>
             </header>
 
