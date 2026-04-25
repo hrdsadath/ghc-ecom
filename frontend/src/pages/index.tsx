@@ -2,90 +2,13 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
 import { useCart } from '../contexts/CartContext';
-
-const publicImage = (fileName: string) => `${process.env.PUBLIC_URL}/img/${fileName}`;
-
-const canisterImg = publicImage('canister.jpeg');
-const kettleImg = publicImage('borddil kettle.jpeg');
-const cutleryImg = publicImage('cuttlery set gold.jpeg');
-const nutsImg = publicImage('nuts try.jpeg');
-const jugImg = publicImage('primium jug set.jpeg');
-const cupImg = publicImage('wooden cup and sucer.jpeg');
-
-const categories = [
-    { id: 'cat1', name: 'Ceramics', imageUrl: nutsImg },
-    { id: 'cat2', name: 'Dinnerware', imageUrl: canisterImg },
-    { id: 'cat3', name: 'Cups', imageUrl: cupImg },
-    { id: 'cat4', name: 'Serving', imageUrl: cutleryImg },
-    { id: 'cat5', name: 'Trays', imageUrl: kettleImg },
-    { id: 'cat6', name: 'Jugs', imageUrl: jugImg },
-    { id: 'cat7', name: 'Plates', imageUrl: nutsImg },
-    { id: 'cat8', name: 'Bowls', imageUrl: canisterImg },
-    { id: 'cat9', name: 'Mugs', imageUrl: cupImg },
-    { id: 'cat10', name: 'Sets', imageUrl: cutleryImg },
-    { id: 'cat11', name: 'Storage', imageUrl: kettleImg },
-    { id: 'cat12', name: 'Gifts', imageUrl: jugImg },
-    { id: 'cat13', name: 'Decor', imageUrl: nutsImg },
-    { id: 'cat14', name: 'Kitchen', imageUrl: canisterImg },
-    { id: 'cat15', name: 'Accessories', imageUrl: cupImg },
-    { id: 'cat16', name: 'Essentials', imageUrl: cutleryImg }
-];
+import { categories, products, canisterImg, kettleImg, cutleryImg, nutsImg, jugImg, cupImg, logo } from '../data/products';
 
 const HomePage: React.FC = () => {
     const cartContext = useCart();
     const cartCount = cartContext?.state.items.length || 0;
 
-    // Sample products data
-    const products = [
-        {
-            id: '1',
-            name: 'Ceramic Bowl',
-            description: 'Beautiful handcrafted ceramic bowl perfect for serving',
-            mrp: 30.05,
-            price: 24.99,
-            imageUrl: nutsImg
-        },
-        {
-            id: '2',
-            name: 'Dinner Plate Set',
-            description: 'Set of 4 elegant dinner plates',
-            mrp: 59.99,
-            price: 49.99,
-            imageUrl: canisterImg
-        },
-        {
-            id: '3',
-            name: 'Tea Cup',
-            description: 'Delicate porcelain tea cup with handle',
-            mrp: 17.99,
-            price: 12.99,
-            imageUrl: cupImg
-        },
-        {
-            id: '4',
-            name: 'Serving Platter',
-            description: 'Large serving platter for special occasions',
-            mrp: 69.99,
-            price: 59.99,
-            imageUrl: cutleryImg
-        },
-        {
-            id: '5',
-            name: 'Soup Bowl',
-            description: 'Deep soup bowl with beautiful glaze',
-            mrp: 19.99,
-            price: 15.99,
-            imageUrl: kettleImg
-        },
-        {
-            id: '6',
-            name: 'Coffee Mug Set',
-            description: 'Set of 2 cozy coffee mugs',
-            mrp: 29.99,
-            price: 22.99,
-            imageUrl: jugImg
-        }
-    ];
+    // Products are now imported from data/products.ts
 
     const filteredProducts = products;
 
@@ -107,24 +30,31 @@ const HomePage: React.FC = () => {
             </header>
 
             {/* Hero Section */}
-            <section className="hero-section">
-                <div className="hero-content">
+ {/* <img src={logo} alt="Glockery Home Center" className="main-logo"/> */}
+            <section className="hero-section">                  
+                    
+               
+                 <div className="hero-content">
+                  
                     <img src={canisterImg} alt="Glockery Home Center" className="hero-logo" />
                     <Link to="#products" className="hero-cta">Buy Now →</Link>
                 </div>
                 <div className="hero-image">
                     <img src={kettleImg} alt="Kitchen Canister Set" />
                 </div>
+               
             </section>
 
             <section className="category-section">
                 <h2>Shop by Category</h2>
                 <div className="category-grid">
                     {categories.map(category => (
-                        <div key={category.id} className="category-card">
-                            <img src={category.imageUrl} alt={category.name} />
-                            <div className="category-label">{category.name}</div>
-                        </div>
+                        <Link key={category.id} to={`/category/${category.id}`} className="category-card-link">
+                            <div className="category-card">
+                                <img src={category.imageUrl} alt={category.name} />
+                                <div className="category-label">{category.name}</div>
+                            </div>
+                        </Link>
                     ))}
                 </div>
             </section>

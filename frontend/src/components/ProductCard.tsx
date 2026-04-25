@@ -1,7 +1,8 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 
-const fallbackProductImage = `${process.env.PUBLIC_URL}/img/canister.jpeg`;
+const fallbackProductImage = '/img/canister.jpeg';
 
 interface ProductCardProps {
     product: {
@@ -23,7 +24,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
     const { addItem } = cartContext;
 
-    const handleBuy = () => {
+    const handleBuy = (e: React.MouseEvent) => {
+        e.stopPropagation();
         try {
             // WhatsApp contact number (with country code, no + sign)
             const phoneNumber = '919207232303';
@@ -45,7 +47,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         }
     };
 
-    const handleAddToCart = () => {
+    const handleAddToCart = (e: React.MouseEvent) => {
+        e.stopPropagation();
         addItem(product);
         alert(`✅ ${product.name} added to cart!`);
     };
@@ -53,26 +56,29 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     return (
         <div className="product-card">
             <div className="product-id">Product ID: {product.id}</div>
-            <img
-                src={product.imageUrl}
-                alt={product.name}
-                onError={(event) => {
-                    event.currentTarget.onerror = null;
-                    event.currentTarget.src = fallbackProductImage;
-                }}
-            />
-            <h3>{product.name}</h3>
-            <p>{product.description}</p>
-            <div className="product-price">
-                {typeof product.mrp === 'number' && (
-                    <span className="product-price-mrp">MRP: ${product.mrp.toFixed(2)}</span>
-                )}
-                <span className="product-price-ghp">GHP: ${product.price.toFixed(2)}</span>
-            </div>
-            <div className="product-actions">
+            <Link to={`/product/${product.id}`} className="product-card-link">
+                <img
+                    src={product.imageUrl}
+                    alt={product.name}
+                    onError={(event) => {
+                        event.currentTarget.onerror = null;
+                        event.currentTarget.src = fallbackProductImage;
+                    }}
+                />
+                <h3>{product.name}</h3>
+                <p>{product.description}</p>
+                <div className="product-price">
+                    {typeof product.mrp === 'number' && (
+                        <span className="product-price-mrp">MRP: ${product.mrp.toFixed(2)}</span>
+                    )}
+                    <span className="product-price-ghp">GHP: ${product.price.toFixed(2)}</span>
+                </div>
+            </Link>
+            {/* <div className="product-actions">
                 <button className="btn-buy" onClick={handleBuy}>Buy Now</button>
                 <button className="btn-cart" onClick={handleAddToCart}>Add to Cart</button>
-            </div>
+                <div className="btn-details">More Details</div>
+            </div> */}
         </div>
     );
 };

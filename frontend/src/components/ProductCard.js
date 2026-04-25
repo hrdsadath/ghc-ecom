@@ -1,7 +1,8 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 
-const fallbackProductImage = `${process.env.PUBLIC_URL}/img/canister.jpeg`;
+const fallbackProductImage = '/img/canister.jpeg';
 
 function ProductCard({ product }) {
   const cartContext = useCart();
@@ -53,6 +54,7 @@ function ProductCard({ product }) {
       <div className="product-actions">
         <button className="btn-buy" onClick={handleBuy}>Buy Now</button>
         <button className="btn-cart" onClick={handleAddToCart}>Add to Cart</button>
+        <Link to={`/product/${product.id}`} className="btn-details">More Details</Link>
       </div>
     </div>
   );
