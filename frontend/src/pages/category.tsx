@@ -9,8 +9,10 @@ const CategoryPage: React.FC = () => {
     const cartContext = useCart();
     const cartCount = cartContext?.state.items.length || 0;
 
-    // const categoryName = categoryId ? categoryId.charAt(0).toUpperCase() + categoryId.slice(1) : '';
-    // const filteredProducts = products.filter(product => product.category.toLowerCase() === categoryId?.toLowerCase());
+    const categoryName = categoryId ? categoryId.charAt(0).toUpperCase() + categoryId.slice(1) : '';
+    const filteredProducts = products.filter(product => 
+  product.category?.toLowerCase() === (categoryId || "").toLowerCase()
+);
 
     return (
         <div>
@@ -30,7 +32,7 @@ const CategoryPage: React.FC = () => {
             </header>
 
             {/* Category Products Section */}
-            {/* <section className="products-section">
+            <section className="products-section">
                 <h2>{categoryName} Collection</h2>
                 <div className="products-grid">
                     {filteredProducts.map(product => (
@@ -40,7 +42,7 @@ const CategoryPage: React.FC = () => {
                 {filteredProducts.length === 0 && (
                     <p>No products found in this category.</p>
                 )}
-            </section> */}
+            </section>
 
             {/* Footer */}
             <footer className="footer">
