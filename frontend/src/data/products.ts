@@ -358,7 +358,7 @@ export const products = [
         mrp: 149.99,
         price: 124.99,
         imageUrl: nutsImg,
-        imageUrls: [nutsImg, bowl123, canisterImg],
+        imageUrls: [nutsImg, bowl123, ],
 
             colors: ['White', 'Cream'],
             stock: 5,
@@ -383,5 +383,29 @@ export const products = [
             weight: '0.8 lbs',
             care: 'Dishwasher safe, microwave safe'
         }
-    }
+    },
+    {
+  id: '20',
+  name: 'HRD20',
+  description: 'Elegant marble serving tray with gold handles',
+  mrp: 64.99,
+  price: 49.99,
+  imageUrl: '/img/cerabowl.jpeg',
+  imageUrls: [
+    '/img/cerabowl.jpeg',
+    '/img/cuttlery set gold.jpeg',
+    '/img/canister.jpeg'
+  ],
+  category: 'mugs',
+  details: {
+    material: 'Carrara marble with brass handles',
+    dimensions: { length: '16"', width: '12"', height: '1.25"' },
+    volume: 'N/A',
+    colors: ['White', 'Gold'],
+    stock: 12,
+    weight: '5.5 lbs',
+    care: 'Wipe clean with a damp cloth'
+  },
+  videoUrl: 'https://www.instagram.com/reel/DQn5tU1kq-1/?utm_source=ig_web_copy_link&igsh=MzRlODBiNWFlZA=='
+}
 ];

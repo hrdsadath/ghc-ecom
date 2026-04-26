@@ -11,7 +11,8 @@ interface ProductCardProps {
         description: string;
         mrp?: number;
         price: number; // GHP
-        imageUrl: string;
+        imageUrl?: string;
+        imageUrls?: string[];
     };
 }
 
@@ -49,16 +50,22 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
     const handleAddToCart = (e: React.MouseEvent) => {
         e.stopPropagation();
-        addItem(product);
+        const cartItem = {
+            ...product,
+            imageUrl: product.imageUrl || product.imageUrls?.[0] || fallbackProductImage,
+        };
+        addItem(cartItem);
         alert(`✅ ${product.name} added to cart!`);
     };
+
+    const mainImage = product.imageUrl || product.imageUrls?.[0] || fallbackProductImage;
 
     return (
         <div className="product-card">
             <div className="product-id">Product ID: {product.id}</div>
             <Link to={`/product/${product.id}`} className="product-card-link">
                 <img
-                    src={product.imageUrl}
+                    src={mainImage}
                     alt={product.name}
                     onError={(event) => {
                         event.currentTarget.onerror = null;

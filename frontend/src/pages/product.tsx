@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext';
 import { products } from '../data/products';
@@ -7,8 +7,32 @@ const ProductDetailPage: React.FC = () => {
     const { productId } = useParams<{ productId: string }>();
     const cartContext = useCart();
     const cartCount = cartContext?.state.items.length || 0;
+    const addItem = cartContext?.addItem;
 
     const product = products.find(p => p.id === productId);
+
+    const slides = useMemo(() => {
+        if (!product) {
+            return [];
+        }
+
+        const imageSlides = (product.imageUrls || [])
+            .filter((src) => typeof src === 'string' && src.trim().length > 1 && src !== '/')
+            .map((src) => ({ type: 'image' as const, src }));
+
+        const videoSlides = product.videoUrl && product.videoUrl.trim().length > 0
+            ? [{ type: 'video' as const, src: product.videoUrl }]
+            : [];
+
+        const fallbackImage = product.imageUrl || '/img/canister.jpeg';
+        const allSlides = [...imageSlides, ...videoSlides];
+
+        return allSlides.length > 0 ? allSlides : [{ type: 'image' as const, src: fallbackImage }];
+    }, [product]);
+
+    const [activeSlide, setActiveSlide] = useState(0);
+
+    const selectedSlide = slides[activeSlide] || slides[0];
 
     if (!product) {
         return (
@@ -32,7 +56,17 @@ const ProductDetailPage: React.FC = () => {
         );
     }
 
-    const { addItem } = cartContext!;
+    const handlePrevSlide = () => {
+        setActiveSlide((prev) => (prev - 1 + slides.length) % slides.length);
+    };
+
+    const handleNextSlide = () => {
+        setActiveSlide((prev) => (prev + 1) % slides.length);
+    };
+
+    const handleSelectSlide = (index: number) => {
+        setActiveSlide(index);
+    };
 
     const handleBuy = () => {
         const phoneNumber = '919207232303';
@@ -43,6 +77,10 @@ const ProductDetailPage: React.FC = () => {
     };
 
     const handleAddToCart = () => {
+        if (!addItem) {
+            alert('Cart is not available right now.');
+            return;
+        }
         addItem(product);
         alert(`✅ ${product.name} added to cart!`);
     };
@@ -68,7 +106,58 @@ const ProductDetailPage: React.FC = () => {
             <section className="product-detail-section">
                 <div className="product-detail-container">
                     <div className="product-detail-image">
-                        <img src={product.imageUrl} alt={product.name} />
+                        <div className="product-detail-carousel">
+                            {selectedSlide.type === 'image' ? (
+                                <img
+                                    src={selectedSlide.src}
+                                    alt={`${product.name} slide ${activeSlide + 1}`}
+                                    className="carousel-image"
+                                    onError={(event) => {
+                                        event.currentTarget.onerror = null;
+                                        event.currentTarget.src = '/img/canister.jpeg';
+                                    }}
+                                />
+                            ) : (
+                                <div className="carousel-video-container">
+                                    <img
+                                        src={product.imageUrl || '/img/canister.jpeg'}
+                                        alt="Video thumbnail"
+                                        className="carousel-image"
+                                    />
+                                    <a
+                                        href={selectedSlide.src}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="video-play-button"
+                                        title="Watch video on Instagram"
+                                    >
+                                        ▶
+                                    </a>
+                                </div>
+                            )}
+
+                            {slides.length > 1 && (
+                                <>
+                                    <button className="carousel-arrow prev" onClick={handlePrevSlide} aria-label="Previous slide">
+                                        ‹
+                                    </button>
+                                    <button className="carousel-arrow next" onClick={handleNextSlide} aria-label="Next slide">
+                                        ›
+                                    </button>
+                                </>
+                            )}
+
+                            <div className="carousel-dots">
+                                {slides.map((_, index) => (
+                                    <button
+                                        key={index}
+                                        className={`dot ${index === activeSlide ? 'active' : ''}`}
+                                        onClick={() => handleSelectSlide(index)}
+                                        aria-label={`Go to slide ${index + 1}`}
+                                    />
+                                ))}
+                            </div>
+                        </div>
                     </div>
                     <div className="product-detail-info">
                         <h1>{product.name}</h1>
