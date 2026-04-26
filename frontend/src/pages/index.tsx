@@ -2,13 +2,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
 import { useCart } from '../contexts/CartContext';
-import { categories, products, canisterImg, kettleImg, cutleryImg, nutsImg, jugImg, cupImg,  } from '../data/products';
+import { categories, products, canisterImg, kettleImg, cutleryImg, nutsImg, jugImg, cupImg, denner123, logo } from '../data/products';
 
 const HomePage: React.FC = () => {
     const cartContext = useCart();
     const cartCount = cartContext?.state.items.length || 0;
-
-    // Products are now imported from data/products.ts
 
     const filteredProducts = products;
 
@@ -17,12 +15,12 @@ const HomePage: React.FC = () => {
             {/* Header */}
             <header className="header">
                 <div className="header-content">
-                    <div className="header-logo">🍽️ Glockery Home Center</div>
+                    {/* <div className="header-logo">Glockry Home Center</div> */}
                     <nav className="header-nav">
                         <Link to="/" className="nav-link">Home</Link>
                         <a href="#products" className="nav-link">Products</a>
                         <Link to="/cart" className="cart-link">
-                            🛒 Cart {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
+                            Cart {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
                         </Link>
                         <a href="#contact" className="nav-link">Contact</a>
                     </nav>
@@ -30,19 +28,40 @@ const HomePage: React.FC = () => {
             </header>
 
             {/* Hero Section */}
- {/* <img src={logo} alt="Glockery Home Center" className="main-logo"/> */}
-            <section className="hero-section">                  
-                    
-               
-                 <div className="hero-content">
-                  
-                    <img src={canisterImg} alt="Glockery Home Center" className="hero-logo" />
-                    <Link to="#products" className="hero-cta">Buy Now →</Link>
+            <section className="hero-section">
+                <div className="hero-content">
+                    <span className="hero-eyebrow">Premium Crockery Destination</span>
+                    <h1 className="hero-title">Glockry Home Center</h1>
+                    <p className="hero-subtitle">
+                        Luxury crockery curated for homes that value elegance. Discover timeless dining pieces,
+                        fine textures, and premium designs crafted to elevate every table.
+                    </p>
+                    <div className="hero-actions">
+                        <a href="#products" className="hero-cta">Explore Collection</a>
+                        <Link to="/category/sets" className="hero-cta-secondary">View Signature Sets</Link>
+                    </div>
+                    <div className="hero-points">
+                        <div className="hero-point">Premium finish crockery</div>
+                        <div className="hero-point">Elegant handcrafted feel</div>
+                        <div className="hero-point">Trusted by 10k+ families</div>
+                    </div>
                 </div>
-                <div className="hero-image">
-                    <img src={kettleImg} alt="Kitchen Canister Set" />
+
+                <div className="hero-visual">
+                    <div className="hero-glow" aria-hidden="true"></div>
+                    <div className="hero-frame">
+                        <img src={logo} alt="Glockry Home Center logo" className="hero-logo" />
+                        <img src={kettleImg} alt="Premium kettle collection" className="hero-main-image" />
+                    </div>
+                    <div className="hero-highlight-card">
+                        <span className="hero-highlight-badge">Luxury Pick</span>
+                        <img src={denner123} alt="Signature dinner collection" />
+                        <p>Signature Dinner Collection</p>
+                    </div>
+                    <div className="hero-floating-thumb">
+                        <img src={cutleryImg} alt="Gold cutlery set" />
+                    </div>
                 </div>
-               
             </section>
 
             <section className="category-section">
@@ -129,10 +148,10 @@ const HomePage: React.FC = () => {
                 <h2>Trusted By 10k+ Family</h2>
                 <div className="testimonials-content">
                     <div className="testimonial-logos">
-                        <div className="logo-placeholder">🏠</div>
-                        <div className="logo-placeholder">👨‍👩‍👧‍👦</div>
-                        <div className="logo-placeholder">🏡</div>
-                        <div className="logo-placeholder">🍽️</div>
+                        <div className="logo-placeholder">Home</div>
+                        <div className="logo-placeholder">Family</div>
+                        <div className="logo-placeholder">Style</div>
+                        <div className="logo-placeholder">Kitchen</div>
                     </div>
                     <div className="testimonial-text">
                         <img src={nutsImg} alt="Trusted by customers" />

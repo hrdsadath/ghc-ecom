@@ -5,7 +5,7 @@ export const nutsImg = '/img/nuts try.jpeg';
 export const jugImg = '/img/primium jug set.jpeg';
 export const cupImg = '/img/wooden cup and sucer.jpeg';
 export const logo = '/img/LOGO_BIG.png';
-export const denner123 = '/img/dinner set 123.jpeg';
+export const denner123 = '/img/dinner set 1.jpeg';
 export const bowl123 = '/img/cerabowl.jpeg';
 
 export const categories = [
