@@ -82,6 +82,17 @@ a.button-active:active {
   display: none;
 }
 
+@layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Base accessibility focus rings */
 :focus-visible {
   outline: 2px solid #dbc184;

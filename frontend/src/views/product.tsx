@@ -29,6 +29,7 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
         ? initialProduct!.variants.find((variant) => variant.availableStock > 0)?.id || initialProduct!.variants[0]?.id || ''
         : '');
     const [activeImage, setActiveImage] = useState(0);
+    const [isZoomed, setIsZoomed] = useState(false);
     const [quantity, setQuantity] = useState(1);
     const [loading, setLoading] = useState(!hasInitialProduct);
     const [error, setError] = useState('');
@@ -51,6 +52,7 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                 setProduct(result);
                 setSelectedVariantId(result.variants.find((variant) => variant.availableStock > 0)?.id || result.variants[0]?.id || '');
                 setActiveImage(0);
+                setIsZoomed(false);
                 setUnplayableVideoIds([]);
                 setRequestedVideoId(null);
             })
@@ -193,25 +195,35 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                                     </div>
                                 </div>
                             ) : (
-                                <img
-                                    src={activeMedia.url || fallbackImage}
-                                    alt={activeMedia.altText || product.name}
-                                    className="h-full w-full object-cover"
-                                    onError={(event) => {
-                                        event.currentTarget.src = fallbackImage;
-                                    }}
-                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setIsZoomed((current) => !current)}
+                                    aria-label={isZoomed ? 'Zoom out selected product image' : 'Zoom in selected product image'}
+                                    className="group block h-full w-full cursor-zoom-in overflow-hidden bg-panel text-left"
+                                >
+                                    <img
+                                        src={activeMedia.url || fallbackImage}
+                                        alt={activeMedia.altText || product.name}
+                                        className={`h-full w-full object-cover transition-transform duration-300 ease-out ${isZoomed ? 'scale-125 cursor-zoom-out' : 'scale-100'}`}
+                                        onError={(event) => {
+                                            event.currentTarget.src = fallbackImage;
+                                        }}
+                                    />
+                                </button>
                             )}
                         </div>
 
                         {gallery.length > 1 && (
-                            <div className="mt-3 flex gap-3 overflow-x-auto">
+                            <div data-product-gallery="thumbs" className="mt-3 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 no-scrollbar sm:gap-3">
                                 {gallery.map((item, index) => (
                                     <button
                                         key={item.id}
-                                        onClick={() => setActiveImage(index)}
+                                        onClick={() => {
+                                            setActiveImage(index);
+                                            setIsZoomed(false);
+                                        }}
                                         aria-label={`View ${item.type === 'video' ? 'video' : 'image'} ${index + 1}`}
-                                        className={`size-20 shrink-0 overflow-hidden border ${activeImage === index ? 'border-gold-400' : 'border-line opacity-65 hover:opacity-100'}`}
+                                        className={`size-[18vw] min-w-[18vw] shrink-0 snap-start overflow-hidden border sm:size-20 sm:min-w-20 ${activeImage === index ? 'border-gold-400' : 'border-line opacity-65 hover:opacity-100'}`}
                                     >
                                         {item.type === 'video' ? (
                                             <span className="grid h-full place-items-center bg-carbon text-cream">

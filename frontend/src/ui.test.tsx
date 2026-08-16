@@ -366,6 +366,34 @@ describe('black and gold commerce UI', () => {
         expect(window.location.hash).toBe(recoveryHash);
     });
 
+    it('uses a no-scrollbar horizontal thumbnail strip on mobile when more than four images are present', async () => {
+        const galleryProduct: Product = {
+            ...product,
+            images: Array.from({ length: 6 }, (_, index) => ({
+                id: `image-${index + 1}`,
+                variantId: product.variants[0].id,
+                thumbnailUrl: `/gallery-${index + 1}.webp`,
+                mediumUrl: `/gallery-${index + 1}.webp`,
+                largeUrl: `/gallery-${index + 1}.webp`,
+                altText: `Gallery image ${index + 1}`,
+                sortOrder: index,
+            })),
+        };
+        currentProduct = galleryProduct;
+
+        const container = await render(
+            <ProductDetailPage />,
+            `/product/${galleryProduct.slug}`,
+        );
+
+        const galleryStrip = container.querySelector('[data-product-gallery="thumbs"]');
+        expect(galleryStrip).not.toBeNull();
+        expect(galleryStrip?.className).toContain('overflow-x-auto');
+        expect(galleryStrip?.className).toContain('no-scrollbar');
+        expect(galleryStrip?.querySelectorAll('button')).toHaveLength(6);
+        expect(galleryStrip?.querySelectorAll('button')[0]).toHaveProperty('type', 'button');
+    });
+
     it('switches colour images and writes the selected variant to the backend cart', async () => {
         const container = await render(
             <ProductDetailPage />,
