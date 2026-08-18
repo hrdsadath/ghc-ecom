@@ -58,7 +58,7 @@ export const OrderConfirmationPage = () => {
                             <span className="mt-5 block text-[10px] font-bold uppercase tracking-[0.3em] text-gold-400">
                                 Payment Verified &amp; Confirmed
                             </span>
-                            <h1 className="mt-2 font-display text-5xl font-semibold text-cream">Thank you for your order</h1>
+                            <h1 className="mt-2 font-display text-4xl font-semibold text-cream sm:text-5xl">Thank you for your order</h1>
                             <p className="mt-3 text-xs text-cream/65 leading-relaxed max-w-lg mx-auto">
                                 Order <strong className="text-sm text-gold-300">{order.orderNumber}</strong> has been received. Keep this confirmation for your records.
                             </p>

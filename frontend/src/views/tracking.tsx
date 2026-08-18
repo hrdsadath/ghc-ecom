@@ -40,7 +40,7 @@ export const ShipmentTrackingPage = () => {
             <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-12 sm:px-8 lg:py-16">
                 <header className="mb-9 border-y border-line py-8">
                     <p className="eyebrow">Order tracking</p>
-                    <h1 className="mt-2 font-display text-5xl font-semibold">Package journey</h1>
+                    <h1 className="mt-2 font-display text-4xl font-semibold sm:text-5xl">Package journey</h1>
                     {trackingNumber && <p className="mt-3 text-xs tabular-nums text-cream/45">Reference: {trackingNumber}</p>}
                 </header>
 

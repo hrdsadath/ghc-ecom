@@ -43,7 +43,7 @@ export const OrderLookupPage = () => {
             <main id="main-content" className="mx-auto w-full max-w-xl flex-1 px-4 py-12 sm:px-8 lg:py-16">
                 <header className="mb-8 border-y border-line py-8">
                     <p className="eyebrow">Order help</p>
-                    <h1 className="mt-2 font-display text-5xl font-semibold">Find an order</h1>
+                    <h1 className="mt-2 font-display text-4xl font-semibold sm:text-5xl">Find an order</h1>
                     <p className="mt-3 text-sm leading-6 text-cream/50">Search order history using the reference from your confirmation email.</p>
                 </header>
 

@@ -105,7 +105,7 @@ export const SearchPage = () => {
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-10 sm:px-8 lg:px-12 lg:py-16">
                 <div className="max-w-2xl">
-                    <h1 className="font-display text-5xl font-semibold tracking-[-0.02em]">
+                    <h1 className="font-display text-4xl font-semibold tracking-[-0.02em] sm:text-5xl">
                         {query ? 'Search results' : 'All products'}
                     </h1>
                     <form onSubmit={submitSearch} className="mt-7 flex min-h-12 items-center border-b border-line focus-within:border-gold-400" role="search">
@@ -125,7 +125,7 @@ export const SearchPage = () => {
                     </form>
                 </div>
 
-                <div className="mt-10 flex flex-col gap-4 border-y border-line py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-10 flex flex-col gap-4 border-y border-line bg-carbon/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm text-cream/65" aria-live="polite">{resultLabel}</p>
                     <label>
                         <span className="sr-only">Category</span>
@@ -141,7 +141,7 @@ export const SearchPage = () => {
                 </div>
 
                 {error ? (
-                    <div className="mt-10 border border-red-500/30 p-6 text-sm text-red-200" role="alert">
+                    <div className="mt-10 border border-red-500/30 bg-red-950/20 p-6 text-sm text-red-200" role="alert">
                         <p>{error}</p>
                         <button type="button" onClick={() => setRetryKey((value) => value + 1)} className="mt-3 font-bold text-gold-300 underline underline-offset-4">Retry</button>
                     </div>
@@ -160,8 +160,8 @@ export const SearchPage = () => {
                         }} />
                     </>
                 ) : (
-                    <div className="mt-10 border-y border-line py-16 text-center">
-                        <h2 className="font-display text-3xl">No products found.</h2>
+                    <div className="mt-10 border-y border-line bg-carbon/45 py-16 text-center">
+                        <h2 className="font-display text-3xl text-cream">No products found.</h2>
                         <p className="mt-2 text-sm text-cream/65">Try a different search or category.</p>
                     </div>
                 )}

@@ -38,7 +38,7 @@ const ProductCard = ({ product, priority = false }: { product: Product; priority
     };
 
     return (
-        <article className="group min-w-0">
+        <article className="group min-w-0 overflow-hidden rounded-sm border border-line bg-carbon transition hover:border-gold-400/40">
             <div className="relative aspect-[4/5] overflow-hidden bg-panel">
                 <Link to={`/product/${product.slug}`} className="relative block h-full" aria-label={`View ${product.name}`}>
                     <Image
@@ -59,38 +59,42 @@ const ProductCard = ({ product, priority = false }: { product: Product; priority
                     aria-label={isWishlisted ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`}
                     aria-pressed={isWishlisted}
                 >
-                    <IconHeart size={18} />
+                    <span className="rounded-full border border-white/5 bg-obsidian/70 p-2">
+                        <IconHeart size={18} />
+                    </span>
                 </button>
             </div>
 
-            <div className="pt-4">
-                <p className="text-xs text-cream/60">{product.category?.name || 'Homeware'}</p>
-                <h3 className="mt-1 font-display text-2xl font-semibold leading-tight text-cream">
+            <div className="space-y-4 border-t border-line px-3 py-4">
+                <p className="text-xs tracking-wide text-cream/55">{product.category?.name || 'Homeware'}</p>
+                <h3 className="font-display text-2xl font-semibold leading-tight text-cream">
                     <Link to={`/product/${product.slug}`} className="hover:text-gold-200">
                         {product.name}
                     </Link>
                 </h3>
-                <div className="mt-3 flex items-center justify-between gap-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex items-baseline gap-2">
                         <span className="text-sm font-semibold tabular-nums text-cream">{variant ? `${hasVariablePrices ? 'From ' : ''}${rupees(variant.pricePaise)}` : 'Unavailable'}</span>
                         {hasDiscount && <s className="text-xs tabular-nums text-cream/60">{rupees(variant!.compareAtPricePaise!)}</s>}
                     </div>
-                    {product.variants.length > 1 ? (
-                        <Link
-                            to={`/product/${product.slug}`}
-                            className="grid min-h-11 place-items-center px-2 text-sm font-semibold text-gold-300 hover:text-gold-100"
-                        >
-                            {productHasColourOptions(product) ? 'Choose options' : 'Choose option'}
-                        </Link>
-                    ) : (
-                        <button
-                            disabled={outOfStock || adding}
-                            onClick={add}
-                            className="min-h-11 px-2 text-sm font-semibold text-gold-300 hover:text-gold-100 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                            {adding ? 'Adding to cart…' : outOfStock ? 'Out of stock' : 'Add to cart'}
-                        </button>
-                    )}
+                    <div className="w-full sm:w-auto">
+                        {product.variants.length > 1 ? (
+                            <Link
+                                to={`/product/${product.slug}`}
+                                className="grid min-h-11 w-full min-w-0 place-items-center px-3 py-2 text-sm font-semibold text-gold-300 transition hover:text-gold-100 sm:w-auto sm:px-4"
+                            >
+                                {productHasColourOptions(product) ? 'Choose options' : 'Choose option'}
+                            </Link>
+                        ) : (
+                            <button
+                                disabled={outOfStock || adding}
+                                onClick={add}
+                                className="button-primary w-full min-w-0 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+                            >
+                                {adding ? 'Adding to cart…' : outOfStock ? 'Out of stock' : 'Add to cart'}
+                            </button>
+                        )}
+                    </div>
                 </div>
                 {error && (
                     <p className="mt-2 text-xs text-red-200" role="alert">

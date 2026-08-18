@@ -86,26 +86,27 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                 <section className="mx-auto grid max-w-[1440px] lg:grid-cols-2">
                     <div className="flex min-h-[360px] items-center px-6 py-12 sm:min-h-[420px] sm:px-8 lg:min-h-[600px] lg:px-12">
                         <div className="max-w-xl">
-                            <h1 className="font-display text-5xl font-semibold leading-[0.98] tracking-[-0.03em] text-cream sm:text-7xl">
+                            <h1 className="font-display text-4xl font-semibold leading-[0.98] tracking-[-0.03em] text-cream sm:text-6xl lg:text-7xl">
                                 Crockery and kitchenware for every home.
                             </h1>
                             <p className="mt-6 max-w-md text-base leading-7 text-cream/70">
                                 Shop dinner sets, tea sets, serving dishes, canisters and more from our Vengara store.
                             </p>
-                            <div className="mt-8 flex flex-wrap items-center gap-5">
+                            <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
                                 <a href="#collection" className="button-primary gap-3">Shop products <IconArrowRight size={16} /></a>
                                 <a href="https://wa.me/916282000289" target="_blank" rel="noreferrer" className="min-h-11 content-center text-sm font-semibold text-gold-300 hover:text-gold-100">WhatsApp us</a>
                             </div>
                         </div>
                     </div>
                     <div className="relative min-h-[320px] bg-panel sm:min-h-[420px] lg:min-h-[600px]">
+                        <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-obsidian/55 to-transparent" />
                         <Image
                             src={theme.hero}
                             alt={theme.heroAlt}
                             fill
                             priority
                             sizes="(min-width: 1024px) 50vw, 100vw"
-                            className="object-cover"
+                            className="relative z-0 object-cover"
                         />
                     </div>
                 </section>
@@ -113,16 +114,23 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                 <section id="collection" className="mx-auto max-w-[1440px] px-4 py-14 sm:px-8 lg:px-12 lg:py-20">
                     <header className="mb-8 flex flex-col gap-5 border-b border-line pb-6 md:flex-row md:items-end md:justify-between">
                         <div>
-                            <h2 className="font-display text-4xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">Shop our collections</h2>
+                            <h2 className="font-display text-3xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">Shop our collections</h2>
                             <p className="mt-2 text-sm text-cream/65">Available online and at Glockery Home Centre, Vengara.</p>
                         </div>
                         {categories.length > 0 && (
                             <div className="flex max-w-full gap-5 overflow-x-auto" aria-label="Filter products">
-                                <button onClick={() => setActiveCategory('')} className={`shrink-0 min-h-11 border-b text-sm ${!activeCategory ? 'border-gold-400 text-cream' : 'border-transparent text-cream/60 hover:text-cream'}`}>
+                                <button
+                                    onClick={() => setActiveCategory('')}
+                                    className={`shrink-0 rounded-full px-4 py-2 text-sm ${!activeCategory ? 'border border-gold-400 bg-gold-500/10 text-cream' : 'border border-transparent text-cream/60 hover:text-cream hover:border-line'}`}
+                                >
                                     All
                                 </button>
                                 {categories.map((category) => (
-                                    <button key={category.id} onClick={() => setActiveCategory(category.slug)} className={`shrink-0 min-h-11 border-b text-sm ${activeCategory === category.slug ? 'border-gold-400 text-cream' : 'border-transparent text-cream/60 hover:text-cream'}`}>
+                                    <button
+                                        key={category.id}
+                                        onClick={() => setActiveCategory(category.slug)}
+                                        className={`shrink-0 rounded-full px-4 py-2 text-sm ${activeCategory === category.slug ? 'border border-gold-400 bg-gold-500/10 text-cream' : 'border border-transparent text-cream/60 hover:text-cream hover:border-line'}`}
+                                    >
                                         {category.name}
                                     </button>
                                 ))}
@@ -141,7 +149,7 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                             {visibleProducts.map((product, index) => <ProductCard key={product.id} product={product} priority={index < 4} />)}
                         </div>
                     ) : (
-                        <div className="border-y border-line py-16 text-center">
+                        <div className="border-y border-line bg-carbon/50 py-16 text-center">
                             <h3 className="font-display text-3xl text-cream">No products found.</h3>
                             <button onClick={() => setActiveCategory('')} className="mt-4 text-sm text-gold-300">View all products</button>
                         </div>
@@ -158,7 +166,7 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                     <div className="grid gap-7 border-y border-line py-10 md:grid-cols-[1fr_auto] md:items-center md:py-12">
                         <div className="max-w-2xl">
                             <p className="text-sm text-cream/60">Need help choosing?</p>
-                            <h2 id="whatsapp-heading" className="mt-2 font-display text-4xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">Chat with Glockery on WhatsApp</h2>
+                            <h2 id="whatsapp-heading" className="mt-2 font-display text-3xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">Chat with Glockery on WhatsApp</h2>
                             <p className="mt-4 max-w-xl text-sm leading-7 text-cream/70">Send us a product screenshot or tell us what you need. We’ll help you check availability and place your order.</p>
                         </div>
                         <a

@@ -21,7 +21,7 @@ const CartPage = () => {
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-16">
                 <header className="mb-10 flex flex-col items-start justify-between gap-4 border-b border-line pb-7 sm:flex-row sm:items-end">
                     <div>
-                        <h1 className="font-display text-5xl font-semibold tracking-[-0.02em] text-cream">Shopping bag</h1>
+                        <h1 className="font-display text-4xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">Shopping bag</h1>
                         <p className="mt-2 text-sm text-cream/65">{items.length} {items.length === 1 ? 'item' : 'items'}</p>
                     </div>
                     <Link to="/" className="text-sm font-semibold text-gold-300 hover:text-gold-100">
@@ -44,9 +44,9 @@ const CartPage = () => {
                     </div>
                 ) : (
                     <div className="grid gap-8 lg:grid-cols-12">
-                        <div className="divide-y divide-line border-y border-line lg:col-span-8">
+                        <div className="divide-y divide-line border border-line lg:col-span-8">
                             {items.map((item) => (
-                                <article key={item.id} className="flex flex-col items-start justify-between gap-6 py-6 sm:flex-row sm:items-center">
+                                <article key={item.id} className="flex flex-col items-start justify-between gap-6 bg-carbon/20 px-5 py-6 sm:flex-row sm:items-center">
                                     <div className="flex items-center gap-5">
                                         <img
                                             src={item.imageUrl || fallbackImage}
@@ -60,14 +60,14 @@ const CartPage = () => {
                                         </div>
                                     </div>
 
-                                    <div className="flex items-center justify-between w-full sm:w-auto sm:gap-8 pt-4 sm:pt-0 border-t sm:border-t-0 border-gold-500/15">
-                                        <div className="flex h-10 border border-line bg-obsidian">
+                                    <div className="flex items-center justify-between w-full gap-4 sm:w-auto sm:gap-8 pt-4 sm:pt-0 border-t sm:border-t-0 border-line sm:border-none">
+                                        <div className="flex h-10 border border-line bg-obsidian/80">
                                             <button
                                                 disabled={loading}
                                                 className="grid w-10 place-items-center text-cream/60 hover:text-gold-300 transition"
                                                 onClick={() => { void updateQuantity(item.variantId, item.quantity - 1).catch(() => undefined); }}
                                                 aria-label="Decrease quantity"
-                                            >
+                                                >
                                                 <IconMinus size={13} />
                                             </button>
                                             <span className="grid w-8 place-items-center text-xs font-bold text-cream tabular-nums">{item.quantity}</span>
@@ -81,13 +81,13 @@ const CartPage = () => {
                                             </button>
                                         </div>
 
-                                        <strong className="font-display text-xl font-semibold text-cream">
+                                        <strong className="min-w-28 text-right font-display text-xl font-semibold text-cream">
                                             {rupees(item.lineTotalPaise)}
                                         </strong>
 
                                         <button
                                             onClick={() => { void removeItem(item.variantId).catch(() => undefined); }}
-                                            className="p-2 text-red-400 hover:text-red-300 transition"
+                                            className="grid size-9 place-items-center rounded-sm border border-red-500/25 text-red-300 transition hover:border-red-300 hover:text-red-100"
                                             title="Remove item"
                                             aria-label={`Remove ${item.productName}`}
                                         >

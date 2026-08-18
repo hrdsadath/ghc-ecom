@@ -241,7 +241,7 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                     <div className="lg:sticky lg:top-28 lg:self-start">
                         <p className="text-sm text-cream/60">{product.category.name}</p>
                         <div className="mt-2 flex items-start justify-between gap-4">
-                            <h1 className="font-display text-5xl font-semibold leading-[1.02] tracking-[-0.025em] sm:text-6xl">{product.name}</h1>
+                            <h1 className="font-display text-4xl font-semibold leading-[1.02] tracking-[-0.025em] sm:text-5xl lg:text-6xl">{product.name}</h1>
                             <button
                                 onClick={() => toggleWishlist(product.id)}
                                 className={`grid size-11 shrink-0 place-items-center ${isWishlisted ? 'text-gold-300' : 'text-cream/60 hover:text-cream'}`}
@@ -250,14 +250,6 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                             >
                                 <IconHeart size={21} />
                             </button>
-                        </div>
-                        <p className="mt-5 max-w-xl text-sm leading-7 text-cream/70">{product.description || product.shortDescription}</p>
-
-                        <div className="mt-7 flex items-baseline gap-3 border-y border-line py-5">
-                            <strong className="font-display text-3xl font-semibold text-cream">{variant ? rupees(variant.pricePaise) : 'Unavailable'}</strong>
-                            {variant?.compareAtPricePaise && variant.compareAtPricePaise > variant.pricePaise && (
-                                <s className="text-sm text-cream/60">{rupees(variant.compareAtPricePaise)}</s>
-                            )}
                         </div>
 
                         <ProductVariantSelector
@@ -271,6 +263,15 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                                 setAddError('');
                             }}
                         />
+
+                        <p className="mt-5 max-w-xl text-sm leading-7 text-cream/70">{product.description || product.shortDescription}</p>
+
+                        <div className="mt-7 flex items-baseline gap-3 border-y border-line py-5">
+                            <strong className="font-display text-3xl font-semibold text-cream">{variant ? rupees(variant.pricePaise) : 'Unavailable'}</strong>
+                            {variant?.compareAtPricePaise && variant.compareAtPricePaise > variant.pricePaise && (
+                                <s className="text-sm text-cream/60">{rupees(variant.compareAtPricePaise)}</s>
+                            )}
+                        </div>
 
                         {variant && (
                             <p className="mt-3 text-xs text-cream/55" aria-live="polite">

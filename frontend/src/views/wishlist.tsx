@@ -28,9 +28,9 @@ const WishlistPage = () => {
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-16">
                 <header className="mb-12 border-y border-line py-9 sm:py-11">
-                    <span className="eyebrow">Your edit</span>
-                    <h1 className="mt-2 font-display text-5xl font-semibold text-cream sm:text-7xl">Saved for later.</h1>
-                    <p className="mt-3 max-w-xl text-xs sm:text-sm leading-relaxed text-cream/60">
+                    <span className="eyebrow">Wishlist</span>
+                    <h1 className="mt-2 font-display text-4xl font-semibold text-cream sm:text-5xl lg:text-7xl">Saved for later.</h1>
+                    <p className="mt-3 max-w-xl text-sm leading-relaxed text-cream/60">
                         Keep the pieces that caught your eye close by. Your wishlist is stored securely on this device.
                     </p>
                 </header>
@@ -38,7 +38,7 @@ const WishlistPage = () => {
                 {loading ? (
                     <div className="text-center py-20 text-cream/40 font-mono text-xs">Loading your edit…</div>
                 ) : !products.length ? (
-                    <div className="border border-line bg-carbon py-20 text-center">
+                    <div className="border border-line bg-carbon/45 py-20 text-center">
                         <h2 className="font-display text-3xl font-semibold text-cream">Nothing saved yet.</h2>
                         <p className="mt-3 text-xs text-cream/50">Start with a piece that makes the room feel different.</p>
                         <Link to="/" className="button-primary mt-8">

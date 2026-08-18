@@ -260,7 +260,7 @@ const CheckoutPage = () => {
         <div className="min-h-screen bg-obsidian text-cream">
             <SEOHead title="Secure Checkout | Glockery" noIndex />
             <header className="flex h-20 items-center justify-between gap-4 border-b border-line px-4 sm:px-10">
-                <Link to="/" className="shrink-0 text-base font-bold tracking-[0.22em] text-cream sm:text-lg">GLOCKERY</Link>
+                <Link to="/" className="shrink-0 text-sm font-bold tracking-[0.18em] text-cream sm:text-lg">GLOCKERY</Link>
                 <span className="flex items-center gap-2 text-right text-[9px] uppercase tracking-[0.12em] text-cream/35 sm:text-[10px] sm:tracking-[0.18em]">
                     <IconShieldCheck size={15} className="shrink-0" /> Secure Razorpay Checkout
                 </span>
@@ -291,7 +291,7 @@ const CheckoutPage = () => {
             <main id="main-content" className="mx-auto grid max-w-[1240px] gap-12 px-6 py-12 sm:px-10 lg:grid-cols-[1fr_420px] lg:px-12 lg:py-16">
                 <form onSubmit={submit}>
                     <p className="eyebrow">Order details &amp; payment</p>
-                    <h1 className="mt-2 font-display text-5xl font-semibold">Complete your order</h1>
+                    <h1 className="mt-2 font-display text-4xl font-semibold sm:text-5xl">Complete your order</h1>
 
                     {paymentFailed && (
                         <div className="mt-6 border border-amber-500/30 bg-amber-950/20 p-5 rounded-sm flex items-start gap-4">

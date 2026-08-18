@@ -87,14 +87,15 @@ const CategoryPage = ({ initialData, initialCategoryId, initialPage }: CategoryP
                 </nav>
 
                 <header className="mb-10 border-b border-line pb-7">
-                    <h1 className="font-display text-5xl font-semibold tracking-[-0.02em] text-cream sm:text-6xl">{categoryTitle}</h1>
+                    <p className="eyebrow">Collection</p>
+                    <h1 className="mt-2 font-display text-4xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl lg:text-6xl">{categoryTitle}</h1>
                     <p className="mt-2 text-sm text-cream/65" aria-live="polite">
                         {loading ? 'Loading products…' : `${total} ${total === 1 ? 'product' : 'products'}`}
                     </p>
                 </header>
 
                 {error ? (
-                    <div className="border border-red-500/30 p-6 text-sm text-red-200" role="alert">
+                    <div className="surface rounded-sm border-red-500/30 p-6 text-sm text-red-200" role="alert">
                         <p>{error}</p>
                         <button type="button" onClick={() => setRetryKey((value) => value + 1)} className="mt-3 font-bold text-gold-300 underline underline-offset-4">Retry</button>
                     </div>
@@ -103,9 +104,9 @@ const CategoryPage = ({ initialData, initialCategoryId, initialPage }: CategoryP
                         {Array.from({ length: 8 }).map((_, idx) => <div key={idx} className="aspect-[4/5] animate-pulse bg-panel" />)}
                     </div>
                 ) : products.length === 0 ? (
-                    <div className="border-y border-line py-16 text-center">
+                    <div className="surface rounded-sm border-y border-line bg-carbon/45 py-16 text-center">
                         <h2 className="font-display text-3xl font-semibold text-cream">No products found.</h2>
-                        <Link to="/" className="mt-5 inline-flex text-sm font-semibold text-gold-300">Return to shop</Link>
+                        <Link to="/" className="button-secondary mt-5">Return to shop</Link>
                     </div>
                 ) : (
                     <>

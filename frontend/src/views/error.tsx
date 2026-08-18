@@ -57,7 +57,7 @@ export const ErrorPage: React.FC<ErrorPageProps> = ({
                     <span className="mt-6 block font-mono text-xs font-bold uppercase tracking-[0.3em] text-gold-400">
                         HTTP Error {code}
                     </span>
-                    <h1 className="mt-2 font-display text-5xl font-semibold text-cream">{errorDetails.title}</h1>
+                    <h1 className="mt-2 font-display text-4xl font-semibold text-cream sm:text-5xl">{errorDetails.title}</h1>
                     <p className="mt-3 text-xs leading-relaxed text-cream/60">{errorDetails.desc}</p>
                     <div className="mt-8">
                         <Link
