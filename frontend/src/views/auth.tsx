@@ -2,7 +2,7 @@
 
 import React, { FormEvent, useState } from 'react';
 import { Link, Redirect, useHistory, useLocation } from '../lib/router';
-import { useAuth } from '../contexts/AuthContext';
+import { isStaffSession, useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { api, getCartIdentity, saveCartIdentity } from '../lib/api';
 import { safeInternalPath } from '../lib/navigation';
@@ -13,13 +13,14 @@ const AuthPage = () => {
     const [error, setError] = useState('');
     const [notice, setNotice] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    const { signedIn, sync } = useAuth();
+    const { signedIn, isStaff, sync } = useAuth();
     const cartContext = useCart();
     const history = useHistory();
     const location = useLocation();
     const requestedNext = new URLSearchParams(location.search).get('next');
     const nextPath = safeInternalPath(requestedNext, '/account');
 
+    if (isStaff) return <Redirect to="/admin" />;
     if (signedIn) return <Redirect to={nextPath} />;
 
     const changeMode = (nextMode: typeof mode) => {
@@ -48,6 +49,12 @@ const AuthPage = () => {
                 : await api.register(String(form.get('name')), String(form.get('email')), String(form.get('password')));
             if (!session) {
                 setNotice('Check your email to confirm the account, then sign in.');
+                return;
+            }
+            if (isStaffSession(session)) {
+                // Staff accounts are not store accounts: send them to their workspace, no cart merge.
+                sync();
+                history.replace('/admin');
                 return;
             }
             if (guestIdentity?.guestToken) {

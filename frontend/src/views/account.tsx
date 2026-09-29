@@ -392,9 +392,10 @@ const ProfileView = () => {
 };
 
 const AccountPage = () => {
-    const { signedIn, isInitializing } = useAuth();
+    const { signedIn, isStaff, isInitializing } = useAuth();
     const location = useLocation();
     if (isInitializing) return null;
+    if (isStaff) return <Redirect to="/admin" />;
     if (!signedIn) return <Redirect to={`/auth?next=${encodeURIComponent(location.pathname)}`} />;
     if (location.pathname.startsWith('/account/orders')) return <OrdersView />;
     if (location.pathname.startsWith('/account/addresses')) return <AddressesView />;

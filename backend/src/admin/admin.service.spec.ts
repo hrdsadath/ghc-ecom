@@ -161,6 +161,7 @@ describe('AdminService', () => {
     const prisma = {
       userRole: {
         upsert: jest.fn().mockResolvedValue({ userId: user.id, role: AppRole.WAREHOUSE_MANAGER }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     const audit = { record: jest.fn().mockResolvedValue({ id: 'audit-id' }) };
@@ -184,6 +185,9 @@ describe('AdminService', () => {
         password: expect.stringMatching(/^[A-Za-z0-9_-]{24}$/),
       }),
     );
+    expect(prisma.userRole.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'staff-id', role: AppRole.CUSTOMER },
+    });
     expect(result).toEqual(
       expect.objectContaining({
         user: expect.objectContaining({

@@ -57,6 +57,9 @@ export class AdminService {
         fullName: input.fullName?.trim() || email,
       });
       userId = user.id;
+      // The auth.users trigger gives every new account the customer role; staff
+      // accounts are for the admin workspace only, not the storefront.
+      await this.prisma.userRole.deleteMany({ where: { userId: user.id, role: AppRole.CUSTOMER } });
       await this.assignRole(actorId, user.id, input.role, context);
       return {
         user: {

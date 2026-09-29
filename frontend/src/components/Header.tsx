@@ -18,7 +18,9 @@ const navLink = 'text-sm text-cream/70 hover:text-cream';
 
 const Header = () => {
     const { itemCount, openCart } = useCart();
-    const { signedIn } = useAuth();
+    const { signedIn, isStaff } = useAuth();
+    const accountPath = isStaff ? '/admin' : signedIn ? '/account' : '/auth';
+    const accountLabel = isStaff ? 'Admin workspace' : signedIn ? 'My account' : 'Sign in';
     const { wishlistIds } = useWishlist();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -69,7 +71,7 @@ const Header = () => {
                             <IconHeart size={19} />
                             {wishlistIds.length > 0 && <span className="count-badge">{wishlistIds.length}</span>}
                         </Link>
-                        <Link to={signedIn ? '/account' : '/auth'} className="relative hidden min-w-11 place-items-center text-cream/70 hover:text-cream sm:grid" aria-label={signedIn ? 'Account' : 'Sign in'}>
+                        <Link to={accountPath} className="relative hidden min-w-11 place-items-center text-cream/70 hover:text-cream sm:grid" aria-label={accountLabel}>
                             <IconUser size={19} />
                         </Link>
                         <button onClick={openCart} className="relative ml-1 flex h-11 min-w-11 items-center gap-2 rounded-full px-2 text-cream hover:text-gold-300" aria-label={`Bag with ${itemCount} items`}>
@@ -154,13 +156,13 @@ const Header = () => {
                                     About
                                 </NavLink>
                                 <NavLink
-                                    to={signedIn ? '/account' : '/auth'}
+                                    to={accountPath}
                                     className="mb-1 flex min-h-12 items-center gap-2 rounded-lg px-3 py-2 text-sm text-cream"
                                     activeClassName="text-gold-300"
                                     onClick={closeMobileMenu}
                                 >
                                     <IconUser size={17} />
-                                    {signedIn ? 'My account' : 'Sign in'}
+                                    {accountLabel}
                                 </NavLink>
                             </div>
                         </nav>

@@ -1,10 +1,17 @@
 import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { api, getSession } from '../lib/api';
-import { Session } from '../types';
+import { AppRole, Session } from '../types';
+
+export const STAFF_ROLES: AppRole[] = ['ADMIN', 'CATALOGUE_MANAGER', 'WAREHOUSE_MANAGER', 'SUPPORT_AGENT'];
+
+export const isStaffSession = (session: Session | null) =>
+    Boolean(session?.roles.some((role) => STAFF_ROLES.includes(role)));
 
 interface AuthContextValue {
     session: Session | null;
     signedIn: boolean;
+    /** Staff accounts sign in to the admin workspace only; the storefront never treats them as customers. */
+    isStaff: boolean;
     isInitializing: boolean;
     sync: () => void;
     signOut: () => Promise<void>;
@@ -36,6 +43,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         <AuthContext.Provider value={{
             session,
             signedIn: Boolean(session),
+            isStaff: isStaffSession(session),
             isInitializing: !ready,
             sync,
             signOut: async () => { await api.logout(); sync(); },

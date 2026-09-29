@@ -11,8 +11,12 @@ import { Order } from '../types';
 
 type Outcome = 'success' | 'failed' | 'pending';
 
+// Poll quickly while the bank usually answers, then slowly until the order settles:
+// the webhook or reconcile job can confirm it minutes later (the payment window is 15 minutes).
 const POLL_INTERVAL_MS = 3_000;
-const MAX_AUTOMATIC_POLLS = 10;
+const FAST_POLLS = 10;
+const SLOW_POLL_INTERVAL_MS = 10_000;
+const MAX_POLL_DURATION_MS = 20 * 60 * 1000;
 
 const readOutcome = (value: string | null): Outcome =>
     value === 'success' || value === 'failed' ? value : 'pending';
@@ -56,6 +60,7 @@ export const PaymentResultPage = () => {
     const hint = readOutcome(params.get('outcome'));
     const [status, setStatus] = useState<'checking' | 'pending' | 'failed'>('checking');
     const [error, setError] = useState('');
+    const [autoChecking, setAutoChecking] = useState(false);
     const polls = useRef(0);
     const isMounted = useRef(false);
 
@@ -79,18 +84,26 @@ export const PaymentResultPage = () => {
             return;
         }
         let timer: ReturnType<typeof setTimeout> | undefined;
+        const startedAt = Date.now();
+        const scheduleNext = () => {
+            polls.current += 1;
+            if (polls.current < FAST_POLLS) {
+                timer = setTimeout(check, POLL_INTERVAL_MS);
+                return;
+            }
+            setStatus('pending');
+            const keepChecking = Date.now() - startedAt < MAX_POLL_DURATION_MS;
+            setAutoChecking(keepChecking);
+            if (keepChecking) timer = setTimeout(check, SLOW_POLL_INTERVAL_MS);
+        };
 
         const check = async () => {
             try {
                 const order: Order = await api.hdfcPaymentStatus(lookup);
                 if (!isMounted.current) return;
+                setError('');
                 if (order.status === 'PAYMENT_PENDING') {
-                    polls.current += 1;
-                    if (polls.current < MAX_AUTOMATIC_POLLS) {
-                        timer = setTimeout(check, POLL_INTERVAL_MS);
-                    } else {
-                        setStatus('pending');
-                    }
+                    scheduleNext();
                     return;
                 }
                 if (order.status === 'PAYMENT_FAILED' || order.status === 'CANCELLED') {
@@ -103,7 +116,9 @@ export const PaymentResultPage = () => {
             } catch (caught) {
                 if (!isMounted.current) return;
                 setError(caught instanceof Error ? caught.message : 'Payment status could not be checked.');
-                setStatus('pending');
+                // A network blip should not end the automatic checks.
+                polls.current = Math.max(polls.current, FAST_POLLS - 1);
+                scheduleNext();
             }
         };
 
@@ -175,6 +190,11 @@ export const PaymentResultPage = () => {
                             Your bank has not sent the final confirmation yet. If money was debited, the order will be confirmed automatically
                             once the bank responds — you do not need to pay again.
                         </p>
+                        {autoChecking && (
+                        <p className="mt-3 inline-flex items-center gap-2 text-[11px] text-cream/45" role="status" aria-live="polite">
+                            <IconRefresh size={12} className="animate-spin" /> Still checking automatically — this page updates on its own.
+                        </p>
+                        )}
                         {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
                         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
                             {lookup && (

@@ -2,13 +2,11 @@
 
 import React, { FormEvent, useState } from 'react';
 import { Link, Redirect, useHistory, useLocation } from '../lib/router';
-import { useAuth } from '../contexts/AuthContext';
+import { STAFF_ROLES as staffRoles, useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { AppRole } from '../types';
 import { IconAlert, IconArrowRight, IconCheckCircle, IconShield } from '../components/Icons';
 import { safeInternalPath } from '../lib/navigation';
-
-const staffRoles: AppRole[] = ['ADMIN', 'CATALOGUE_MANAGER', 'WAREHOUSE_MANAGER', 'SUPPORT_AGENT'];
 
 const defaultAdminPath = (roles: AppRole[]) => {
     if (roles.includes('ADMIN')) return '/admin';
