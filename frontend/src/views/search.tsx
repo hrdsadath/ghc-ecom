@@ -6,7 +6,6 @@ import Header from '../components/Header';
 import { IconSearch } from '../components/Icons';
 import Pagination from '../components/Pagination';
 import ProductCard from '../components/ProductCard';
-import SEOHead from '../components/SEOHead';
 import StoreFooter from '../components/StoreFooter';
 import { api } from '../lib/api';
 import { Category, Product } from '../types';
@@ -101,7 +100,6 @@ export const SearchPage = () => {
 
     return (
         <div className="flex min-h-screen flex-col bg-obsidian font-body text-cream">
-            <SEOHead title={`${query ? `Search: ${query}` : 'All products'} | Glockery`} />
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-10 sm:px-8 lg:px-12 lg:py-16">
                 <div className="max-w-2xl">

@@ -190,8 +190,10 @@ describe('CheckoutService', () => {
       updatedAt: new Date(),
     };
     const prisma = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       coupon: { findFirst: jest.fn().mockResolvedValue(coupon) },
       couponRedemption: { count: jest.fn().mockResolvedValue(1) },
+      checkoutQuote: { count: jest.fn().mockResolvedValue(0) },
     };
     const service = new CheckoutService(prisma as never, {} as never);
     const validateCoupon = (
@@ -207,5 +209,6 @@ describe('CheckoutService', () => {
     await expect(validateCoupon('LIMITED', 10_000, null)).rejects.toBeInstanceOf(
       BadRequestException,
     );
+    expect(prisma.$executeRaw).toHaveBeenCalled();
   });
 });

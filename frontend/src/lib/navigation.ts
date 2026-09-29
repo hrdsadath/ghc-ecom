@@ -12,3 +12,23 @@ export const openTrustedUrl = (value: string): boolean => {
         return false;
     }
 };
+
+export const safeInternalPath = (value: string | null, fallback: string): string => {
+    if (
+        !value ||
+        !value.startsWith('/') ||
+        value.startsWith('//') ||
+        value.includes('\\') ||
+        /%(?:2f|5c|0[0-9a-f]|1[0-9a-f]|7f)/i.test(value)
+    ) {
+        return fallback;
+    }
+    try {
+        const base = new URL('https://internal.invalid');
+        const resolved = new URL(value, base);
+        if (resolved.origin !== base.origin || resolved.username || resolved.password) return fallback;
+        return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    } catch {
+        return fallback;
+    }
+};

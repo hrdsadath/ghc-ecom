@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import CategoryPage from '../../../views/category';
-import { getCachedProducts } from '../../../lib/server-catalogue';
+import JsonLd from '../../../components/JsonLd';
+import { getCachedCategories, getCachedProducts } from '../../../lib/server-catalogue';
 import { titleCase } from '../../../lib/commerce';
+import { STORE, metaDescription } from '../../../lib/site';
+import { breadcrumbSchema, collectionSchema, jsonLdGraph } from '../../../lib/structured-data';
 
 export const revalidate = 0;
 
@@ -15,11 +18,30 @@ const pageNumber = (value?: string | string[]) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
 };
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+/** Resolves the published category; `null` means the list loaded and the slug is not in it. */
+async function categoryForSlug(slug: string) {
+  const categories = await getCachedCategories().catch(() => undefined);
+  if (!categories) return undefined;
+  return categories.find((category) => category.slug === slug) ?? null;
+}
+
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { categoryId } = await params;
+  const page = pageNumber((await searchParams).page);
+  const category = await categoryForSlug(categoryId);
+  const name = category?.name || titleCase(categoryId.replace(/-/g, ' '));
+  const path = `/category/${categoryId}${page > 1 ? `?page=${page}` : ''}`;
+  const description = metaDescription(
+    category?.description,
+    `Shop ${name.toLowerCase()} online from ${STORE.name}, a crockery and kitchenware shop in Vengara, Malappuram. Check prices and order online.`,
+  );
+
   return {
-    title: `${titleCase(categoryId.replace(/-/g, ' '))} collection`,
-    description: `Shop ${titleCase(categoryId.replace(/-/g, ' '))} from Glockery Home Centre, Vengara.`,
+    title: `${name} collection${page > 1 ? ` – page ${page}` : ''}`,
+    description,
+    alternates: { canonical: path },
+    openGraph: { title: `${name} | ${STORE.name}`, description, url: path },
+    ...(category === null ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -32,13 +54,31 @@ export default async function Page({ params, searchParams }: PageProps) {
     limit: '24',
     category: categoryId,
   });
-  const initialData = await getCachedProducts(requestParams).catch(() => undefined);
+  const [initialData, category] = await Promise.all([
+    getCachedProducts(requestParams).catch(() => undefined),
+    categoryForSlug(categoryId),
+  ]);
+  const name = category?.name || initialData?.items[0]?.category.name;
+  const path = `/category/${categoryId}${page > 1 ? `?page=${page}` : ''}`;
 
   return (
-    <CategoryPage
-      initialCategoryId={categoryId}
-      initialData={initialData}
-      initialPage={page}
-    />
+    <>
+      {name && initialData && (
+        <JsonLd
+          data={jsonLdGraph(
+            collectionSchema({ name, slug: categoryId, description: category?.description }, initialData.items, path),
+            breadcrumbSchema([
+              { name: 'Home', path: '/' },
+              { name, path: `/category/${categoryId}` },
+            ]),
+          )}
+        />
+      )}
+      <CategoryPage
+        initialCategoryId={categoryId}
+        initialData={initialData}
+        initialPage={page}
+      />
+    </>
   );
 }

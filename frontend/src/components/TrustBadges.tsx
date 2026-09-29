@@ -7,7 +7,7 @@ const TrustBadges = () => (
             {[
                 [<IconAward size={20} className="shrink-0 text-gold-400" />, 'Crockery & kitchenware', 'Dinner sets, tea sets, canisters, serving dishes and more'],
                 [<IconCheckCircle size={20} className="shrink-0 text-gold-400" />, 'Carefully packed', 'Every piece is checked before your order is confirmed'],
-                [<IconShieldCheck size={20} className="shrink-0 text-gold-400" />, 'Secure checkout', 'Server-verified payments powered by Razorpay'],
+                [<IconShieldCheck size={20} className="shrink-0 text-gold-400" />, 'Secure checkout', 'Server-verified payments powered by HDFC Bank'],
             ].map(([icon, title, copy]) => (
                 <article key={String(title)} className="flex min-h-32 items-start gap-4 py-7 sm:px-7">
                     <span className="grid size-10 shrink-0 place-items-center border border-line">{icon}</span>

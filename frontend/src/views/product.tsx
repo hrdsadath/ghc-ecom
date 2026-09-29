@@ -5,7 +5,6 @@ import { Link, useParams } from '../lib/router';
 import Header from '../components/Header';
 import { IconHeart, IconMinus, IconPlay, IconPlus } from '../components/Icons';
 import ProductVariantSelector from '../components/ProductVariantSelector';
-import SEOHead from '../components/SEOHead';
 import StoreFooter from '../components/StoreFooter';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
@@ -97,6 +96,7 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
         sortOrder: image.sortOrder,
         altText: image.altText,
         url: image.largeUrl,
+        mediumUrl: image.mediumUrl,
         thumbnailUrl: image.thumbnailUrl,
     }));
     if (imageMedia.length === 0) {
@@ -106,6 +106,7 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
             sortOrder: 0,
             altText: `${product.name}${variant ? ` — ${variantOptionLabel(variant)}` : ''}`,
             url: fallbackImage,
+            mediumUrl: '',
             thumbnailUrl: fallbackImage,
         });
     }
@@ -142,7 +143,6 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
 
     return (
         <div className="flex min-h-screen flex-col bg-obsidian font-body text-cream">
-            <SEOHead title={`${product.name} | Glockery Home Centre`} product={product} />
             <Header />
 
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-14">
@@ -203,9 +203,14 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                                 >
                                     <img
                                         src={activeMedia.url || fallbackImage}
+                                        srcSet={activeMedia.mediumUrl ? `${activeMedia.mediumUrl} 800w, ${activeMedia.url} 1600w` : undefined}
+                                        sizes="(min-width: 1024px) 55vw, 100vw"
+                                        fetchPriority="high"
+                                        decoding="async"
                                         alt={activeMedia.altText || product.name}
-                                        className={`h-full w-full object-cover transition-transform duration-300 ease-out ${isZoomed ? 'scale-125 cursor-zoom-out' : 'scale-100'}`}
+                                        className={`h-full w-full object-contain transition-transform duration-300 ease-out ${isZoomed ? 'scale-125 cursor-zoom-out' : 'scale-100'}`}
                                         onError={(event) => {
+                                            event.currentTarget.removeAttribute('srcset');
                                             event.currentTarget.src = fallbackImage;
                                         }}
                                     />
@@ -217,6 +222,7 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                             <div data-product-gallery="thumbs" className="mt-3 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 no-scrollbar sm:gap-3">
                                 {gallery.map((item, index) => (
                                     <button
+                                        type="button"
                                         key={item.id}
                                         onClick={() => {
                                             setActiveImage(index);
@@ -230,7 +236,7 @@ export const ProductDetailPage = ({ initialProduct, initialSlug }: ProductDetail
                                                 <IconPlay size={22} />
                                             </span>
                                         ) : (
-                                            <img src={item.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+                                            <img loading="lazy" decoding="async" src={item.thumbnailUrl} alt="" className="h-full w-full bg-panel object-contain" />
                                         )}
                                     </button>
                                 ))}

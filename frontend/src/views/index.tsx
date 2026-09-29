@@ -7,7 +7,6 @@ import Header from '../components/Header';
 import { IconArrowRight, IconMessageCircle } from '../components/Icons';
 import InstagramReels from '../components/InstagramReels';
 import ProductCard from '../components/ProductCard';
-import SEOHead from '../components/SEOHead';
 import StoreFooter from '../components/StoreFooter';
 import { useDailyTheme } from '../hooks/useDailyTheme';
 import { api } from '../lib/api';
@@ -64,22 +63,6 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
 
     return (
         <div className="flex min-h-screen flex-col bg-obsidian font-body text-cream">
-            <SEOHead structuredData={{
-                '@context': 'https://schema.org',
-                '@type': 'HomeGoodsStore',
-                name: 'Glockery Home Centre',
-                description: 'Premium crockery and kitchenware in Vengara, Malappuram.',
-                telephone: '+91 6282000289',
-                address: {
-                    '@type': 'PostalAddress',
-                    streetAddress: 'Home Centre, Near ICICI Bank',
-                    addressLocality: 'Vengara',
-                    addressRegion: 'Kerala',
-                    postalCode: '676304',
-                    addressCountry: 'IN',
-                },
-                sameAs: ['https://www.instagram.com/glockery_home_centre/'],
-            }} />
             <Header />
 
             <main id="main-content" className="flex-1">

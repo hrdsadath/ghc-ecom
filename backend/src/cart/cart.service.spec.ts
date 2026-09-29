@@ -101,6 +101,41 @@ describe('CartService', () => {
     expect(prisma.cart.findFirst).not.toHaveBeenCalled();
   });
 
+  it('abandons an expired active user cart before creating a new one', async () => {
+    const expiresAt = new Date('2026-10-01T00:00:00.000Z');
+    const calls: string[] = [];
+    const prisma = {
+      cart: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn().mockImplementation(() => {
+          calls.push('updateMany');
+          return Promise.resolve({ count: 1 });
+        }),
+        create: jest.fn().mockImplementation(() => {
+          calls.push('create');
+          return Promise.resolve({ id: 'new-cart', status: CartStatus.ACTIVE, expiresAt });
+        }),
+      },
+    };
+    const service = new CartService(prisma as never, {} as never);
+    jest
+      .spyOn(service as unknown as { optionalUserId: () => Promise<string> }, 'optionalUserId')
+      .mockResolvedValue('user-id');
+
+    const result = await service.createCart('Bearer token');
+
+    expect(prisma.cart.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-id',
+        status: CartStatus.ACTIVE,
+        expiresAt: { lte: expect.any(Date) },
+      },
+      data: { status: CartStatus.ABANDONED },
+    });
+    expect(calls).toEqual(['updateMany', 'create']);
+    expect(result.cart.id).toBe('new-cart');
+  });
+
   it('sets a guest cart item with only a mutation and a joined cart read', async () => {
     const expiresAt = new Date('2026-09-01T00:00:00.000Z');
     const prisma = {

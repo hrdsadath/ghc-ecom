@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { AppRole } from '../types';
 import { IconAlert, IconArrowRight, IconCheckCircle, IconShield } from '../components/Icons';
+import { safeInternalPath } from '../lib/navigation';
 
 const staffRoles: AppRole[] = ['ADMIN', 'CATALOGUE_MANAGER', 'WAREHOUSE_MANAGER', 'SUPPORT_AGENT'];
 
@@ -25,7 +26,8 @@ const AdminLoginPage = () => {
     const [showPassword, setShowPassword] = useState(false);
 
     const requestedNext = new URLSearchParams(location.search).get('next');
-    const safeNext = requestedNext?.startsWith('/admin') && !requestedNext.startsWith('//') ? requestedNext : null;
+    const requestedPath = safeInternalPath(requestedNext, '');
+    const safeNext = requestedPath === '/admin' || requestedPath.startsWith('/admin/') ? requestedPath : null;
     const roles = session?.roles || [];
     const isStaff = roles.some((role) => staffRoles.includes(role));
 

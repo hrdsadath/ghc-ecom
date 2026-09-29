@@ -5,7 +5,7 @@ repository_root="$(git rev-parse --show-toplevel)"
 cd "$repository_root"
 
 if git grep -n -I -E \
-  '(SUPABASE_SERVICE_ROLE_KEY|RAZORPAY_KEY_SECRET|RAZORPAY_WEBHOOK_SECRET)[[:space:]]*[:=][[:space:]]*[^"$<{[:space:]]{8,}' \
+  '(SUPABASE_SERVICE_ROLE_KEY|HDFC_API_KEY|HDFC_WEBHOOK_PASSWORD)[[:space:]]*[:=][[:space:]]*[^"$<{[:space:]]{8,}' \
   -- 'src/**' 'public/**' ':!**/*.map'; then
   echo "Potential backend secret found in frontend source."
   exit 1

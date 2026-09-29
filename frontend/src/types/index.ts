@@ -5,6 +5,7 @@ export interface Category {
     description?: string | null;
     isPublished: boolean;
     sortOrder: number;
+    updatedAt?: string;
 }
 
 export interface ProductVariant {
@@ -53,6 +54,7 @@ export interface Product {
     images: ProductImage[];
     videos: ProductVideo[];
     createdAt?: string;
+    updatedAt?: string;
 }
 
 export interface PaginatedProducts {
@@ -153,17 +155,16 @@ export interface CheckoutQuote {
     expiresAt: string;
 }
 
-export interface PaymentIntent {
-    keyId: string;
-    razorpayOrderId: string;
+/** HDFC SmartGateway intent: the browser navigates to the hosted `paymentUrl`. */
+export interface HdfcPaymentIntent {
+    provider: 'hdfc';
     orderId: string;
     orderNumber: string;
+    /** Echoed back by SmartGateway as `order_id` on /checkout/result. */
+    hdfcOrderId: string;
     amount: number;
     currency: string;
-    checkout: {
-        items: CartItem[];
-        shippingAddress: ShippingAddressInput & { email?: string };
-    };
+    paymentUrl: string;
 }
 
 export interface OrderRefund {
@@ -178,7 +179,7 @@ export interface OrderRefund {
 
 export interface OrderPayment {
     id: string;
-    razorpayPaymentId?: string | null;
+    hdfcTransactionId?: string | null;
     status: string;
     amountPaise: number;
     currency: string;
@@ -199,7 +200,7 @@ export interface Order {
     shippingPaise: number;
     taxPaise: number;
     totalPaise: number;
-    razorpayOrderId?: string | null;
+    hdfcOrderId?: string | null;
     confirmedAt?: string | null;
     createdAt: string;
     updatedAt: string;

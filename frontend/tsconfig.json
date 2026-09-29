@@ -33,6 +33,7 @@
     "next-env.d.ts",
     ".next/types/**/*.ts",
     "src/**/*",
+    "vitest.environment.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [

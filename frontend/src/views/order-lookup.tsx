@@ -4,7 +4,6 @@ import React, { FormEvent, useState } from 'react';
 import { Link } from '../lib/router';
 import Header from '../components/Header';
 import { IconArrowRight, IconSearch } from '../components/Icons';
-import SEOHead from '../components/SEOHead';
 import StoreFooter from '../components/StoreFooter';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
@@ -38,7 +37,6 @@ export const OrderLookupPage = () => {
 
     return (
         <div className="flex min-h-screen flex-col justify-between bg-obsidian font-body text-cream">
-            <SEOHead title="Find an order | Glockery" noIndex />
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-xl flex-1 px-4 py-12 sm:px-8 lg:py-16">
                 <header className="mb-8 border-y border-line py-8">

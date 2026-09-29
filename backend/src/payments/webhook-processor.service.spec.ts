@@ -1,149 +1,78 @@
-import { OrderStatus } from '@prisma/client';
+import { WebhookStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { PaymentsService } from './payments.service';
-import { RazorpayService } from './razorpay.service';
+import { HdfcPaymentsService } from './hdfc/hdfc-payments.service';
 import { WebhookProcessorService } from './webhook-processor.service';
 
 describe('WebhookProcessorService', () => {
-  const payment = {
-    id: 'pay_1',
-    entity: 'payment' as const,
-    amount: 12_700,
-    currency: 'INR',
-    status: 'captured' as const,
-    order_id: 'order_1',
-  };
-  const order = {
-    id: '1b4e28ba-2fa1-11d2-883f-0016d3cca427',
-    status: OrderStatus.PAYMENT_PENDING,
-    razorpayOrderId: 'order_1',
+  const payload = {
+    id: 'evt_V2_1',
+    event_name: 'ORDER_SUCCEEDED',
+    content: { order: { order_id: 'GHCMF0ABCDE12345678' } },
   };
   let claimCount = 1;
   let prisma: {
     webhookEvent: {
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
+      findMany: jest.Mock;
       update: jest.Mock;
     };
-    order: { findUnique: jest.Mock };
-    refund: { findUnique: jest.Mock };
-    $transaction: jest.Mock;
   };
-  let transaction: {
-    refund: { update: jest.Mock; aggregate: jest.Mock };
-    payment: { update: jest.Mock };
-    returnRequest: { update: jest.Mock };
-  };
-  let payments: { applyCapturedPayment: jest.Mock; applyFailedPayment: jest.Mock };
-  let razorpay: { fetchPaymentsForOrder: jest.Mock };
+  let payments: { handleWebhook: jest.Mock };
   let processor: WebhookProcessorService;
 
   beforeEach(() => {
     claimCount = 1;
-    transaction = {
-      refund: {
-        update: jest.fn().mockResolvedValue({}),
-        aggregate: jest.fn().mockResolvedValue({ _sum: { amountPaise: 12_700 } }),
-      },
-      payment: { update: jest.fn().mockResolvedValue({}) },
-      returnRequest: { update: jest.fn().mockResolvedValue({}) },
-    };
     prisma = {
       webhookEvent: {
         updateMany: jest.fn(() => Promise.resolve({ count: claimCount })),
-        findUniqueOrThrow: jest.fn().mockResolvedValue({
-          id: 'event-local-1',
-          payload: {
-            event: 'payment.captured',
-            payload: { payment: { entity: payment } },
-          },
-        }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'event-local-1', payload }),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn().mockResolvedValue({}),
       },
-      order: { findUnique: jest.fn().mockResolvedValue(order) },
-      refund: {
-        findUnique: jest.fn().mockResolvedValue({
-          id: 'refund-local-1',
-          paymentId: 'payment-local-1',
-          returnRequestId: 'return-1',
-          amountPaise: 12_700,
-          currency: 'INR',
-          payment: {
-            id: 'payment-local-1',
-            razorpayPaymentId: 'pay_1',
-            amountPaise: 12_700,
-          },
-        }),
-      },
-      $transaction: jest.fn((callback: (client: typeof transaction) => Promise<unknown>) =>
-        callback(transaction),
-      ),
     };
-    payments = {
-      applyCapturedPayment: jest.fn().mockResolvedValue(undefined),
-      applyFailedPayment: jest.fn().mockResolvedValue(undefined),
-    };
-    razorpay = { fetchPaymentsForOrder: jest.fn() };
+    payments = { handleWebhook: jest.fn().mockResolvedValue(undefined) };
     processor = new WebhookProcessorService(
       prisma as unknown as PrismaService,
-      payments as unknown as PaymentsService,
-      razorpay as unknown as RazorpayService,
+      payments as unknown as HdfcPaymentsService,
     );
   });
 
-  it('processes a captured payment once and marks the event processed', async () => {
-    await processor.process('event-local-1');
-    claimCount = 0;
+  it('settles the order through the HDFC payments service and marks the event processed', async () => {
     await processor.process('event-local-1');
 
-    expect(payments.applyCapturedPayment).toHaveBeenCalledTimes(1);
-    expect(payments.applyCapturedPayment).toHaveBeenCalledWith(order, payment);
+    expect(payments.handleWebhook).toHaveBeenCalledWith(payload);
     expect(prisma.webhookEvent.update).toHaveBeenCalledWith({
       where: { id: 'event-local-1' },
-      data: expect.objectContaining({ status: 'PROCESSED' }),
+      data: expect.objectContaining({ status: WebhookStatus.PROCESSED }),
     });
   });
 
-  it('marks a failed payment and delegates inventory release', async () => {
-    const failedPayment = { ...payment, status: 'failed' as const };
-    prisma.webhookEvent.findUniqueOrThrow.mockResolvedValue({
-      id: 'event-local-1',
-      payload: {
-        event: 'payment.failed',
-        payload: { payment: { entity: failedPayment } },
-      },
-    });
-
-    await processor.process('event-local-1');
-
-    expect(payments.applyFailedPayment).toHaveBeenCalledWith(order, failedPayment);
-  });
-
-  it('applies a processed refund webhook once despite duplicate delivery', async () => {
-    prisma.webhookEvent.findUniqueOrThrow.mockResolvedValue({
-      id: 'event-local-1',
-      payload: {
-        event: 'refund.processed',
-        payload: {
-          refund: {
-            entity: {
-              id: 'rfnd_1',
-              amount: 12_700,
-              currency: 'INR',
-              payment_id: 'pay_1',
-              status: 'processed',
-            },
-          },
-        },
-      },
-    });
-
-    await processor.process('event-local-1');
+  it('skips an event another worker already claimed', async () => {
     claimCount = 0;
+
     await processor.process('event-local-1');
 
-    expect(transaction.refund.update).toHaveBeenCalledTimes(1);
-    expect(transaction.payment.update).toHaveBeenCalledTimes(1);
-    expect(transaction.returnRequest.update).toHaveBeenCalledTimes(1);
+    expect(payments.handleWebhook).not.toHaveBeenCalled();
+  });
+
+  it('records the failure and rethrows so the queue retries', async () => {
+    payments.handleWebhook.mockRejectedValue(new Error('HDFC request failed: timeout'));
+
+    await expect(processor.process('event-local-1')).rejects.toThrow('timeout');
+    expect(prisma.webhookEvent.update).toHaveBeenCalledWith({
+      where: { id: 'event-local-1' },
+      data: expect.objectContaining({
+        status: WebhookStatus.FAILED,
+        lastError: 'HDFC request failed: timeout',
+      }),
+    });
+  });
+
+  it('drains pending events', async () => {
+    prisma.webhookEvent.findMany.mockResolvedValue([{ id: 'event-local-1' }]);
+
+    await expect(processor.processPending()).resolves.toBe(1);
+    expect(payments.handleWebhook).toHaveBeenCalledTimes(1);
   });
 });

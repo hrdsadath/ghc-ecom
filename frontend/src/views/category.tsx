@@ -5,7 +5,6 @@ import { Link, useHistory, useLocation, useParams } from '../lib/router';
 import Header from '../components/Header';
 import Pagination from '../components/Pagination';
 import ProductCard from '../components/ProductCard';
-import SEOHead from '../components/SEOHead';
 import StoreFooter from '../components/StoreFooter';
 import { api } from '../lib/api';
 import { titleCase } from '../lib/commerce';
@@ -76,7 +75,6 @@ const CategoryPage = ({ initialData, initialCategoryId, initialPage }: CategoryP
 
     return (
         <div className="flex min-h-screen flex-col justify-between bg-obsidian font-body text-cream">
-            <SEOHead title={`${categoryTitle} Collection | Glockery Home Centre`} />
             <Header />
 
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-10 sm:px-8 lg:px-12 lg:py-16">

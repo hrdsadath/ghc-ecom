@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -371,38 +370,45 @@ describe('Application health (e2e)', () => {
       .expect(400);
   });
 
-  it('accepts a Razorpay webhook signed over the exact raw body', async () => {
-    const rawBody = '{"event":"payment.captured","payload":{}}';
-    const signature = createHmac('sha256', 'webhook-secret').update(rawBody).digest('hex');
-
+  it('stores and enqueues an authenticated HDFC webhook', async () => {
     await request(app.getHttpServer())
-      .post('/api/v1/webhooks/razorpay')
+      .post('/api/v1/webhooks/hdfc')
       .set('content-type', 'application/json')
-      .set('x-razorpay-signature', signature)
-      .set('x-razorpay-event-id', 'webhook-provider-1')
-      .send(rawBody)
-      .expect(202)
-      .expect({ accepted: true });
+      .set(
+        'authorization',
+        `Basic ${Buffer.from('glockeryhooks:e2e-webhook-password').toString('base64')}`,
+      )
+      .send(
+        '{"id":"evt_e2e_1","event_name":"ORDER_SUCCEEDED","content":{"order":{"order_id":"GHC1"}}}',
+      )
+      .expect(200)
+      .expect({ received: true });
 
     expect(prisma.webhookEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        providerEventId: 'webhook-provider-1',
-        eventType: 'payment.captured',
+        providerEventId: 'evt_e2e_1',
+        eventType: 'ORDER_SUCCEEDED',
       }),
     });
     expect(paymentQueue.enqueueWebhook).toHaveBeenCalledWith('webhook-local-1');
   });
 
-  it('rejects a tampered Razorpay webhook before persistence', async () => {
+  it('rejects HDFC webhooks without the dashboard Basic credentials', async () => {
+    // Exempt from CSRF (cross-site provider call) but never unauthenticated.
     await request(app.getHttpServer())
-      .post('/api/v1/webhooks/razorpay')
-      .set('content-type', 'application/json')
-      .set('x-razorpay-signature', '0'.repeat(64))
-      .set('x-razorpay-event-id', 'webhook-provider-tampered')
-      .send('{"event":"payment.captured","payload":{}}')
+      .post('/api/v1/webhooks/hdfc')
+      .set('authorization', `Basic ${Buffer.from('attacker:guess').toString('base64')}`)
+      .send({ event_name: 'ORDER_SUCCEEDED', content: { order: { order_id: 'GHC1' } } })
       .expect(401);
 
     expect(prisma.webhookEvent.create).not.toHaveBeenCalled();
     expect(paymentQueue.enqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start an HDFC checkout while the gateway is disabled', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/checkout/hdfc/intent')
+      .send({ quoteId: '0f8fad5b-d9cb-469f-a165-70867728950e' })
+      .expect(503);
   });
 });

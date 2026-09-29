@@ -51,3 +51,16 @@ export const getCachedProduct = (slug: string) =>
     120,
     ['catalogue', 'products', `product:${slug}`],
   );
+
+const MAX_LISTING_PAGES = 20;
+
+/** Every published product (card fields only), for sitemaps and llms.txt. */
+export async function getAllCachedProducts() {
+  const products = [];
+  for (let page = 1; page <= MAX_LISTING_PAGES; page += 1) {
+    const result = await getCachedProducts(new URLSearchParams({ page: String(page), limit: '100' }));
+    products.push(...result.items);
+    if (products.length >= result.total || result.items.length === 0) break;
+  }
+  return products;
+}

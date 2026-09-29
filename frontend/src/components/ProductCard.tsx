@@ -47,7 +47,7 @@ const ProductCard = ({ product, priority = false }: { product: Product; priority
                         fill
                         priority={priority}
                         sizes="(min-width: 1024px) 25vw, 50vw"
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                        className="h-full w-full object-contain p-3 transition-transform duration-300 group-hover:scale-[1.02]"
                         onError={(event) => {
                             event.currentTarget.src = fallbackImage;
                         }}

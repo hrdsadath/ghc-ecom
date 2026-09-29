@@ -26,7 +26,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { SupabaseAuthGuard } from '../auth/guards/supabase-auth.guard';
-import { CatalogueProduct, CatalogueService } from './catalogue.service';
+import { CatalogueProduct, CatalogueProductCard, CatalogueService } from './catalogue.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { CreateVariantDto } from './dto/create-variant.dto';
@@ -121,7 +121,7 @@ export class AdminCatalogueController {
   }
 
   @Get('products')
-  listProducts(): Promise<CatalogueProduct[]> {
+  listProducts(): Promise<CatalogueProductCard[]> {
     return this.catalogue.listAdminProducts();
   }
 

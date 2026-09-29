@@ -73,9 +73,11 @@ const OrdersView = () => {
                     {orders.map((order) => (
                         <article key={order.id} className={`${panel} grid gap-5 sm:grid-cols-[84px_1fr_auto] sm:items-center hover:border-gold-400/40 transition`}>
                             <img
+                                loading="lazy"
+                                decoding="async"
                                 src={order.itemsSnapshot?.[0]?.imageUrl || fallbackImage}
                                 alt=""
-                                className="aspect-square w-20 object-cover rounded-sm border border-gold-500/20 bg-obsidian"
+                                className="aspect-square w-20 object-contain rounded-sm border border-gold-500/20 bg-obsidian"
                                 onError={(e) => { e.currentTarget.src = fallbackImage; }}
                             />
                             <div>
@@ -259,16 +261,8 @@ const WishlistView = () => {
         let cancelled = false;
         const loadWishlist = async () => {
             try {
-                const collected: Product[] = [];
-                let page = 1;
-                let total = 0;
-                do {
-                    const result = await api.products(new URLSearchParams({ page: String(page), limit: '100' }));
-                    collected.push(...result.items);
-                    total = result.total;
-                    page += 1;
-                } while (collected.length < total && page <= 20);
-                if (!cancelled) setProducts(collected.filter((product) => wishlistIds.includes(product.id)));
+                const saved = wishlistIds.length ? await api.productsByIds(wishlistIds) : [];
+                if (!cancelled) setProducts(saved);
             } catch (caught) {
                 if (!cancelled) setError(caught instanceof Error ? caught.message : 'Unable to load wishlist.');
             } finally {
@@ -304,9 +298,11 @@ const WishlistView = () => {
                         <div key={product.id} className={`${panel} relative flex flex-col justify-between`}>
                             <div>
                                 <img
+                                    loading="lazy"
+                                    decoding="async"
                                     src={product.images[0]?.thumbnailUrl || fallbackImage}
                                     alt=""
-                                    className="aspect-square w-full object-cover rounded-sm border border-gold-500/20 bg-obsidian"
+                                    className="aspect-square w-full object-contain rounded-sm border border-gold-500/20 bg-obsidian"
                                     onError={(e) => { e.currentTarget.src = fallbackImage; }}
                                 />
                                 <h3 className="mt-3 font-display text-lg font-bold text-cream line-clamp-1">{product.name}</h3>

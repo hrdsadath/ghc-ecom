@@ -7,6 +7,14 @@ import { SessionCookieService } from './session-cookie.service';
 
 type ParsedCookieRequest = Request & { cookies?: Record<string, string> };
 
+// Provider callbacks are posted cross-site and authenticate themselves.
+const CSRF_EXEMPT_PATH_SUFFIXES = ['/webhooks/hdfc'];
+
+function isProviderCallback(request: Request): boolean {
+  const path = request.path || request.originalUrl.split('?')[0];
+  return CSRF_EXEMPT_PATH_SUFFIXES.some((suffix) => path.endsWith(suffix));
+}
+
 @Injectable()
 export class CsrfService {
   private readonly protect: RequestHandler;
@@ -36,8 +44,7 @@ export class CsrfService {
       },
       getCsrfTokenFromRequest: (request) => request.headers['x-csrf-token'],
       skipCsrfProtection: (request) =>
-        !this.cookies.hasBrowserSession(request) ||
-        request.originalUrl.endsWith('/webhooks/razorpay'),
+        !this.cookies.hasBrowserSession(request) || isProviderCallback(request),
       errorConfig: {
         statusCode: 403,
         message: 'Invalid CSRF token',

@@ -111,18 +111,44 @@ describe('AdminService', () => {
   });
 
   it('protects the final administrator from removal', async () => {
-    const prisma = {
+    const transaction = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       userRole: {
         count: jest.fn().mockResolvedValue(1),
         deleteMany: jest.fn(),
       },
+    };
+    const prisma = {
+      $transaction: jest.fn((callback) => callback(transaction)),
     };
     const service = new AdminService(prisma as never, {} as never, {} as never);
 
     await expect(
       service.removeRole('admin-id', 'other-admin-id', AppRole.ADMIN, {}),
     ).rejects.toThrow('The final administrator cannot be removed');
-    expect(prisma.userRole.deleteMany).not.toHaveBeenCalled();
+    expect(transaction.$executeRaw).toHaveBeenCalled();
+    expect(transaction.userRole.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('serializes the administrator invariant check with the removal', async () => {
+    const transaction = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      userRole: {
+        count: jest.fn().mockResolvedValue(2),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = { $transaction: jest.fn((callback) => callback(transaction)) };
+    const audit = { record: jest.fn().mockResolvedValue({ id: 'audit-id' }) };
+    const service = new AdminService(prisma as never, audit as never, {} as never);
+
+    await service.removeRole('admin-id', 'other-admin-id', AppRole.ADMIN, {});
+
+    expect(transaction.$executeRaw).toHaveBeenCalled();
+    expect(transaction.userRole.count).toHaveBeenCalledWith({ where: { role: AppRole.ADMIN } });
+    expect(transaction.userRole.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'other-admin-id', role: AppRole.ADMIN },
+    });
   });
 
   it('creates a confirmed staff account with a generated password and selected role', async () => {

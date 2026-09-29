@@ -5,7 +5,7 @@
 - Node.js 24 and npm 11
 - Docker Engine with Compose
 - Supabase project
-- Razorpay test account
+- HDFC SmartGateway sandbox merchant account
 - SMTP sandbox such as Mailtrap, Resend SMTP, or provider test tenant
 
 Use `nvm use` from repository root.

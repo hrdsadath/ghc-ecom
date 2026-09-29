@@ -1,10 +1,10 @@
 import React from 'react';
-import { useLocation } from '../lib/router';
+import { usePath } from '../lib/router';
 import { IconMessageCircle, IconPhone } from './Icons';
 
 const FloatingContactButtons = () => {
-    const location = useLocation();
-    if (location.pathname === '/admin' || location.pathname.startsWith('/admin/')) return null;
+    const pathname = usePath();
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) return null;
 
     return (
       <div className="fixed bottom-5 right-4 z-40 flex flex-col items-end gap-3 sm:bottom-6 sm:right-6" aria-label="Contact Glockery Home Centre">

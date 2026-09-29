@@ -8,11 +8,11 @@ import {
     Coupon,
     CreateCouponInput,
     CreatedCart,
+    HdfcPaymentIntent,
     InventoryLevel,
     OperationsSnapshot,
     Order,
     PaginatedProducts,
-    PaymentIntent,
     Product,
     ProductImage,
     ProductVariant,
@@ -271,6 +271,17 @@ export const api = {
     categories: () => request<Category[]>('/categories'),
     products: (params = new URLSearchParams({ page: '1', limit: '48' }), signal?: AbortSignal) => request<PaginatedProducts>(`/products?${params}`, { signal }),
     product: (slug: string) => request<Product>(`/products/${encodeURIComponent(slug)}`),
+    productsByIds: async (ids: string[]): Promise<Product[]> => {
+        const unique = [...new Set(ids)];
+        const pages = await Promise.all(
+            Array.from({ length: Math.ceil(unique.length / 100) }, (_, index) =>
+                request<PaginatedProducts>(
+                    `/products?${new URLSearchParams({ ids: unique.slice(index * 100, index * 100 + 100).join(','), limit: '100' })}`,
+                ),
+            ),
+        );
+        return pages.flatMap((page) => page.items);
+    },
 
     createCart: () => request<CreatedCart>('/carts', { method: 'POST' }, { auth: authenticated() }),
     getCart: (cartId: string) => request<Cart>(`/carts/${cartId}`, {}, cartOptions()),
@@ -285,18 +296,10 @@ export const api = {
         addressId?: string;
         shippingAddress?: ShippingAddressInput;
     }) => request<CheckoutQuote>('/checkout/quote', { method: 'POST', body: JSON.stringify(input) }, cartOptions()),
-    paymentIntent: (quoteId: string) => request<PaymentIntent>('/checkout/intent', { method: 'POST', body: JSON.stringify({ quoteId }) }, cartOptions()),
-    verifyPayment: (input: { razorpayPaymentId: string; razorpayOrderId: string; razorpaySignature: string }) =>
-        request<Order>('/payments/razorpay/verify', { method: 'POST', body: JSON.stringify(input) }, cartOptions()),
-    paymentStatus: (razorpayOrderId: string) =>
-        request<Order>(
-            '/payments/razorpay/status',
-            {
-                method: 'POST',
-                body: JSON.stringify({ razorpayOrderId }),
-            },
-            cartOptions(),
-        ),
+    hdfcPaymentIntent: (quoteId: string) =>
+        request<HdfcPaymentIntent>('/checkout/hdfc/intent', { method: 'POST', body: JSON.stringify({ quoteId }) }, cartOptions()),
+    hdfcPaymentStatus: (lookup: { orderId: string } | { hdfcOrderId: string }) =>
+        request<Order>('/payments/hdfc/status', { method: 'POST', body: JSON.stringify(lookup) }, cartOptions()),
 
     profile: () => request<Profile>('/me/profile', {}, { auth: true }),
     updateProfile: (input: Partial<Pick<Profile, 'fullName' | 'phone'>>) =>
@@ -319,7 +322,10 @@ export const api = {
     createReturn: (id: string, reason: string) =>
         request<unknown>(`/orders/${id}/returns`, { method: 'POST', body: JSON.stringify({ reason }) }, { auth: true }),
 
-    adminProducts: (signal?: AbortSignal) => request<Product[]>('/admin/catalogue/products', { signal }, { auth: true }),
+    // List rows carry card images only and no videos; open a product with adminProduct.
+    adminProducts: (signal?: AbortSignal) =>
+        request<Product[]>('/admin/catalogue/products', { signal }, { auth: true, timeoutMs: 45_000 }),
+    adminProduct: (id: string) => request<Product>(`/admin/catalogue/products/${id}`, {}, { auth: true }),
     adminCategories: (signal?: AbortSignal) => request<Category[]>('/admin/catalogue/categories', { signal }, { auth: true }),
     createProduct: (input: unknown) => request<Product>('/admin/catalogue/products', { method: 'POST', body: JSON.stringify(input) }, { auth: true }),
     updateProduct: (id: string, input: unknown) =>
@@ -339,6 +345,15 @@ export const api = {
         request<ProductImage>(
             `/admin/catalogue/products/${productId}/images`,
             { method: 'POST', body: form },
+            { auth: true, timeoutMs: 45_000 },
+        ),
+    importGoogleDriveImage: (
+        productId: string,
+        input: { driveUrl: string; variantIds?: string[]; altText: string; sortOrder?: number },
+    ) =>
+        request<ProductImage>(
+            `/admin/catalogue/products/${productId}/images/google-drive`,
+            { method: 'POST', body: JSON.stringify(input) },
             { auth: true, timeoutMs: 45_000 },
         ),
     updateProductImage: (productId: string, imageId: string, input: { variantIds?: string[]; variantId?: string | null; altText?: string; sortOrder?: number }) =>

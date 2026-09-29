@@ -1,3 +1,7 @@
-import InfoPage from '../../views/info';
-export const metadata = { title: 'Privacy policy' };
-export default function Page() { return <InfoPage kind="privacy" />; }
+import InfoRoute, { infoMetadata } from '../../components/InfoRoute';
+
+export const metadata = infoMetadata('privacy');
+
+export default function Page() {
+  return <InfoRoute kind="privacy" />;
+}

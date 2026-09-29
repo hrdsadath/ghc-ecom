@@ -39,7 +39,7 @@ Audit date: 2026-07-24
 
 - Supply real production secrets and exact origins.
 - Run migrations against staging/production Supabase.
-- Complete live provider tests: Razorpay, SMTP, shipping, alerts.
+- Complete live provider tests: HDFC SmartGateway, SMTP, shipping, alerts.
 - Perform backup restore drill, load test, ZAP/penetration test, and low-value live
   payment.
 - Choose monitoring, log retention, on-call ownership, RTO/RPO, and final SLOs.

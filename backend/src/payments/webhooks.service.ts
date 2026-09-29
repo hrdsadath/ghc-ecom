@@ -1,29 +1,28 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { PaymentQueueService } from './payment-queue.service';
-import { RazorpayService } from './razorpay.service';
 
+/**
+ * Stores authenticated SmartGateway webhooks once and hands them to the payment
+ * queue, so a slow Order Status check never makes SmartGateway wait or retry.
+ */
 @Injectable()
 export class WebhooksService {
-  private readonly logger = new Logger(WebhooksService.name);
-
   constructor(
     private readonly prisma: PrismaService,
-    private readonly razorpay: RazorpayService,
     private readonly queue: PaymentQueueService,
   ) {}
 
-  async ingest(rawBody: Buffer, signature: string, providerEventId: string): Promise<void> {
-    if (!this.razorpay.verifyWebhookSignature(rawBody, signature)) {
-      this.logger.warn('Rejected Razorpay webhook with an invalid signature');
-      throw new UnauthorizedException('Invalid Razorpay webhook signature');
-    }
+  async ingest(rawBody: Buffer): Promise<void> {
     const payload = this.parse(rawBody);
-    const eventType = typeof payload.event === 'string' ? payload.event : '';
-    if (!eventType) {
-      throw new UnauthorizedException('Invalid Razorpay webhook payload');
-    }
+    const eventType = typeof payload.event_name === 'string' ? payload.event_name : 'UNKNOWN';
+    // SmartGateway event ids (`evt_…`) deduplicate redeliveries; fall back to the body hash.
+    const providerEventId =
+      typeof payload.id === 'string' && payload.id
+        ? payload.id
+        : `sha256:${createHash('sha256').update(rawBody).digest('hex')}`;
 
     const existing = await this.prisma.webhookEvent.findUnique({
       where: { providerEventId },
@@ -67,7 +66,7 @@ export class WebhooksService {
       }
       return value as Record<string, unknown>;
     } catch {
-      throw new UnauthorizedException('Invalid Razorpay webhook payload');
+      throw new BadRequestException('Invalid HDFC webhook payload');
     }
   }
 

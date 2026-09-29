@@ -9,13 +9,13 @@
 - Security approver:
 - Date:
 
-## Razorpay test mode
+## HDFC SmartGateway sandbox
 
 - Checkout success evidence:
 - Payment failure evidence:
 - Checkout cancellation/abandonment evidence:
 - Duplicate webhook event ID and response:
-- Full or partial refund ID and final `refund.processed` evidence:
+- Full or partial refund `unique_request_id` and final `SUCCESS` evidence:
 - Reconciliation output:
 
 ## Supabase restore

@@ -62,3 +62,23 @@ describe('API CSRF recovery', () => {
         expect(sessionRequests).toBe(1);
     });
 });
+
+describe('API product lookups', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('fetches saved products by id in chunks of 100 instead of scanning the catalogue', async () => {
+        const ids = Array.from({ length: 150 }, (_, index) => `id-${index}`);
+        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+            const requested = new URL(String(input), 'http://localhost').searchParams.get('ids')?.split(',') ?? [];
+            return json({ items: requested.map((id) => ({ id })), total: requested.length, page: 1, limit: 100 });
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const products = await api.productsByIds([...ids, 'id-0']);
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(products.map((product) => product.id)).toEqual(ids);
+    });
+});

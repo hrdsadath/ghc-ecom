@@ -14,6 +14,7 @@ import { NotificationMessage, NotificationSenderService } from './notification-s
 import { renderOrderEmail } from './order-email-template';
 
 const MAX_ATTEMPTS = 5;
+const PROCESSING_LEASE_MS = 5 * 60 * 1000;
 
 interface AddressContact {
   email?: string;
@@ -33,9 +34,17 @@ export class OutboxService {
   async processPending(limit = 25): Promise<number> {
     const events = await this.prisma.outboxEvent.findMany({
       where: {
-        status: { in: [OutboxStatus.PENDING, OutboxStatus.FAILED] },
         attempts: { lt: MAX_ATTEMPTS },
-        availableAt: { lte: new Date() },
+        OR: [
+          {
+            status: { in: [OutboxStatus.PENDING, OutboxStatus.FAILED] },
+            availableAt: { lte: new Date() },
+          },
+          {
+            status: OutboxStatus.PROCESSING,
+            processingStartedAt: { lte: this.leaseCutoff() },
+          },
+        ],
       },
       orderBy: { createdAt: 'asc' },
       take: Math.min(Math.max(limit, 1), 100),
@@ -54,12 +63,19 @@ export class OutboxService {
     const result = await this.prisma.outboxEvent.updateMany({
       where: {
         id,
-        status: { in: [OutboxStatus.PENDING, OutboxStatus.FAILED] },
         attempts: { lt: MAX_ATTEMPTS },
+        OR: [
+          { status: { in: [OutboxStatus.PENDING, OutboxStatus.FAILED] } },
+          {
+            status: OutboxStatus.PROCESSING,
+            processingStartedAt: { lte: this.leaseCutoff() },
+          },
+        ],
       },
       data: {
         status: OutboxStatus.PROCESSING,
         attempts: { increment: 1 },
+        processingStartedAt: new Date(),
         lastError: null,
       },
     });
@@ -76,6 +92,7 @@ export class OutboxService {
         data: {
           status: OutboxStatus.PROCESSED,
           processedAt: new Date(),
+          processingStartedAt: null,
           lastError: null,
         },
       });
@@ -85,6 +102,7 @@ export class OutboxService {
         where: { id: event.id },
         data: {
           status: OutboxStatus.FAILED,
+          processingStartedAt: null,
           lastError: error instanceof Error ? error.message.slice(0, 1000) : 'Unknown error',
           availableAt: new Date(Date.now() + this.retryDelay(attempts)),
         },
@@ -203,5 +221,9 @@ export class OutboxService {
 
   private retryDelay(attempt: number): number {
     return Math.min(2 ** attempt * 1000, 15 * 60 * 1000);
+  }
+
+  private leaseCutoff(): Date {
+    return new Date(Date.now() - PROCESSING_LEASE_MS);
   }
 }

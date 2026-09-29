@@ -109,7 +109,7 @@ async function run(): Promise<void> {
         shippingPaise: confirmedQuote.shippingPaise,
         taxPaise: confirmedQuote.taxPaise,
         totalPaise: confirmedQuote.totalPaise,
-        razorpayOrderId: `order_phase5_${suffix}`,
+        hdfcOrderId: `GHCP5${suffix.replace(/[^a-z0-9]/gi, '')}`.slice(0, 20),
         paymentExpiresAt: confirmedQuote.expiresAt,
       },
     });
@@ -117,7 +117,7 @@ async function run(): Promise<void> {
     await prisma.payment.create({
       data: {
         orderId: confirmedOrder.id,
-        razorpayPaymentId: `pay_phase5_${suffix}`,
+        hdfcTransactionId: `txn_phase5_${suffix}`,
         status: PaymentStatus.CAPTURED,
         amountPaise: confirmedOrder.totalPaise,
         signatureVerified: true,
@@ -191,7 +191,7 @@ async function run(): Promise<void> {
         shippingPaise: failedQuote.shippingPaise,
         taxPaise: failedQuote.taxPaise,
         totalPaise: failedQuote.totalPaise,
-        razorpayOrderId: `order_phase5_failed_${suffix}`,
+        hdfcOrderId: `GHCF5${suffix.replace(/[^a-z0-9]/gi, '')}`.slice(0, 20),
         paymentExpiresAt: failedQuote.expiresAt,
       },
     });
@@ -221,8 +221,8 @@ async function run(): Promise<void> {
     const event = await prisma.webhookEvent.create({
       data: {
         providerEventId,
-        eventType: 'payment.captured',
-        payload: { event: 'payment.captured' },
+        eventType: 'ORDER_SUCCEEDED',
+        payload: { event_name: 'ORDER_SUCCEEDED' },
       },
     });
     webhookId = event.id;
@@ -231,16 +231,16 @@ async function run(): Promise<void> {
       await prisma.webhookEvent.create({
         data: {
           providerEventId,
-          eventType: 'payment.captured',
-          payload: { event: 'payment.captured' },
+          eventType: 'ORDER_SUCCEEDED',
+          payload: { event_name: 'ORDER_SUCCEEDED' },
         },
       });
     } catch (error) {
       duplicateRejected =
         error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
     }
-    assert(duplicateRejected, 'Duplicate Razorpay event ID was not rejected');
-    console.log('✓ Razorpay event IDs are unique in live webhook persistence');
+    assert(duplicateRejected, 'Duplicate HDFC webhook event ID was not rejected');
+    console.log('✓ HDFC webhook event IDs are unique in live webhook persistence');
   } finally {
     if (webhookId) await prisma.webhookEvent.deleteMany({ where: { id: webhookId } });
     if (orderIds.length) {

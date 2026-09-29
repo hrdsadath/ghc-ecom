@@ -43,6 +43,10 @@ export const useHistory = () => {
     }), [router]);
 };
 
+// Path-only hook: unlike useLocation it does not read search params, so static pages keep
+// their server-rendered HTML instead of bailing out to client-side rendering.
+export const usePath = () => usePathname() || '/';
+
 export const useLocation = () => {
     const pathname = usePathname() || '/';
     const searchParams = useSearchParams();

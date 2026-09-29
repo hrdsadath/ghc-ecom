@@ -13,7 +13,7 @@ NestJS API
   ├── Supabase Auth + Storage
   ├── PostgreSQL through Prisma
   ├── Redis + BullMQ workers
-  ├── Razorpay payments/webhooks
+  ├── HDFC SmartGateway payments/webhooks
   ├── SMTP / notification provider
   └── Shipping provider
 ```
@@ -60,7 +60,7 @@ storefront bundle.
 ## Non-negotiable invariants
 
 - Server calculates price, tax, discount, inventory, payment, and refund state.
-- Razorpay signatures use exact raw request bytes and timing-safe comparison.
+- Payment outcomes always come from the server-to-server SmartGateway Order Status API; webhooks use timing-safe Basic credential checks.
 - Public resource IDs are UUIDs.
 - Database migrations are forward-only and run once per release.
 - Health is split into liveness (`/health`) and dependency readiness (`/ready`).

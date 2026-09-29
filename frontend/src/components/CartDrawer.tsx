@@ -38,7 +38,7 @@ const CartDrawer = () => {
                         </div>
                     ) : items.map((item) => (
                         <article key={item.id} className="grid grid-cols-[88px_1fr] gap-5 border-b border-gold-500/15 py-6">
-                            <img src={item.imageUrl || fallbackImage} alt={item.productName} className="aspect-[4/5] h-full w-full object-cover rounded-sm border border-gold-500/20" />
+                            <img loading="lazy" decoding="async" src={item.imageUrl || fallbackImage} alt={item.productName} className="aspect-[4/5] w-full self-start object-contain rounded-sm border border-gold-500/20 bg-panel" />
                             <div className="flex min-w-0 flex-col justify-between">
                                 <div className="flex items-start justify-between gap-4">
                                     <div>

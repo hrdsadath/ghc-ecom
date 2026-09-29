@@ -123,6 +123,12 @@ export class CartService {
           cart: await this.getCartView(existing.id, { userId, guestTokenHash: null }),
         };
       }
+      // An expired cart still counts against carts_one_active_per_user_idx until
+      // it leaves the active status; its reservations expire on their own.
+      await this.prisma.cart.updateMany({
+        where: { userId, status: CartStatus.ACTIVE, expiresAt: { lte: new Date() } },
+        data: { status: CartStatus.ABANDONED },
+      });
       const cart = await this.prisma.cart.create({
         data: {
           userId,

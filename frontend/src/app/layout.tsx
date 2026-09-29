@@ -2,20 +2,59 @@ import type { Metadata, Viewport } from 'next';
 import { Suspense } from 'react';
 import '../index.css';
 import Providers from './providers';
+import JsonLd from '../components/JsonLd';
+import { SITE_URL, STORE } from '../lib/site';
+import { jsonLdGraph, storeSchema, websiteSchema } from '../lib/structured-data';
+
+const defaultTitle = 'Glockery Home Centre Vengara | Crockery & Kitchenware';
+const defaultDescription = 'Shop premium crockery, dinner sets, tea sets, serving dishes, canisters and kitchenware from Glockery Home Centre in Vengara, Malappuram.';
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: 'Glockery Home Centre Vengara | Crockery & Kitchenware',
+    default: defaultTitle,
     template: '%s | Glockery Home Centre',
   },
-  description: 'Shop premium crockery, dinner sets, tea sets, serving dishes, canisters and kitchenware from Glockery Home Centre in Vengara, Malappuram.',
+  description: defaultDescription,
+  applicationName: STORE.name,
+  keywords: [...STORE.keywords],
+  category: 'shopping',
+  creator: STORE.name,
+  publisher: STORE.name,
+  formatDetection: { telephone: false, email: false, address: false },
   openGraph: {
     type: 'website',
-    siteName: 'Glockery Home Centre',
+    siteName: STORE.name,
     locale: 'en_IN',
+    title: defaultTitle,
+    description: defaultDescription,
   },
-  robots: { index: true, follow: true },
+  twitter: {
+    card: 'summary_large_image',
+    title: defaultTitle,
+    description: defaultDescription,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || undefined,
+    other: process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION
+      ? { 'msvalidate.01': process.env.NEXT_PUBLIC_BING_SITE_VERIFICATION }
+      : undefined,
+  },
+  other: {
+    'geo.region': 'IN-KL',
+    'geo.placename': 'Vengara, Malappuram',
+  },
 };
 
 export const viewport: Viewport = {
@@ -32,8 +71,9 @@ const RouteFallback = () => (
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" data-scroll-behavior="smooth">
+    <html lang="en-IN" data-scroll-behavior="smooth">
       <body>
+        <JsonLd data={jsonLdGraph(storeSchema(), websiteSchema())} />
         <Suspense fallback={<RouteFallback />}>
           <Providers>{children}</Providers>
         </Suspense>

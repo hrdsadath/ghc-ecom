@@ -20,3 +20,6 @@ artifacts/
 .idea/
 .vscode/
 *.log
+
+# Local HDFC SmartGateway test-kit credentials
+/config.json

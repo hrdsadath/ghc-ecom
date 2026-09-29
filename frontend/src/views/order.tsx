@@ -98,9 +98,11 @@ const OrderDetailPage = () => {
                                 {order.itemsSnapshot.map((item) => (
                                     <article key={item.id || item.variantId} className="grid grid-cols-[72px_1fr_auto] items-center gap-5 py-5">
                                         <img
+                                            loading="lazy"
+                                            decoding="async"
                                             src={item.imageUrl || fallbackImage}
                                             alt=""
-                                            className="aspect-square object-cover rounded-sm border border-gold-500/20 bg-obsidian"
+                                            className="aspect-square w-full object-contain rounded-sm border border-gold-500/20 bg-obsidian"
                                         />
                                         <div>
                                             <h2 className="font-display text-xl font-bold text-cream">{item.productName}</h2>

@@ -10,11 +10,16 @@ const validEnvironment = {
   SUPABASE_ANON_KEY: 'anon-key',
   SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
   CSRF_SECRET: 'test-csrf-secret-that-is-at-least-32-characters',
-  RAZORPAY_KEY_ID: 'rzp_test_key',
-  RAZORPAY_KEY_SECRET: 'secret',
-  RAZORPAY_WEBHOOK_SECRET: 'webhook-secret',
   EMAIL_FROM: 'Glockery Home Centre <orders@example.com>',
   RESEND_API_KEY: 're_test_key',
+};
+
+const hdfcSandbox = {
+  HDFC_ENABLED: 'true',
+  HDFC_MERCHANT_ID: 'SG1234',
+  HDFC_API_KEY: 'api-key',
+  HDFC_WEBHOOK_USERNAME: 'glockery',
+  HDFC_WEBHOOK_PASSWORD: 'w'.repeat(24),
 };
 
 describe('validateEnvironment', () => {
@@ -98,7 +103,9 @@ describe('validateEnvironment', () => {
         CSRF_SECRET: 'production-csrf-secret-that-is-at-least-32-characters',
         ALLOW_TEST_PAYMENTS_IN_PRODUCTION: 'true',
       }),
-    ).toThrow('FRONTEND_ORIGIN: must use a public HTTPS origin in production unless localhost CORS is explicitly allowed');
+    ).toThrow(
+      'FRONTEND_ORIGIN: must use a public HTTPS origin in production unless localhost CORS is explicitly allowed',
+    );
   });
 
   it('allows localhost CORS in production only with an explicit opt-in', () => {
@@ -112,6 +119,7 @@ describe('validateEnvironment', () => {
         API_PUBLIC_URL: 'https://api.example.com',
         CSRF_SECRET: 'production-csrf-secret-that-is-at-least-32-characters',
         ALLOW_TEST_PAYMENTS_IN_PRODUCTION: 'true',
+        ...hdfcSandbox,
       }).FRONTEND_ORIGINS,
     ).toEqual(['https://shop.example.com', 'http://localhost:3000']);
   });
@@ -136,9 +144,22 @@ describe('validateEnvironment', () => {
     ).toThrow('must use a public HTTPS origin in production');
   });
 
-  it('rejects Razorpay test keys in production unless staging explicitly opts in', () => {
+  it('requires the HDFC gateway in production', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        NODE_ENV: 'production',
+        FRONTEND_ORIGIN: 'https://shop.example.com',
+        API_PUBLIC_URL: 'https://api.example.com',
+        CSRF_SECRET: 'production-csrf-secret-that-is-at-least-32-characters',
+      }),
+    ).toThrow('HDFC_ENABLED: must be true in production');
+  });
+
+  it('rejects the HDFC sandbox in production unless staging explicitly opts in', () => {
     const production = {
       ...validEnvironment,
+      ...hdfcSandbox,
       NODE_ENV: 'production',
       FRONTEND_ORIGIN: 'https://shop.example.com',
       API_PUBLIC_URL: 'https://api.example.com',
@@ -146,10 +167,64 @@ describe('validateEnvironment', () => {
     };
 
     expect(() => validateEnvironment(production)).toThrow(
-      'test keys require ALLOW_TEST_PAYMENTS_IN_PRODUCTION=true',
+      'the sandbox gateway requires ALLOW_TEST_PAYMENTS_IN_PRODUCTION=true',
     );
     expect(
       validateEnvironment({ ...production, ALLOW_TEST_PAYMENTS_IN_PRODUCTION: 'true' }),
     ).toMatchObject({ ALLOW_TEST_PAYMENTS_IN_PRODUCTION: true });
+    expect(
+      validateEnvironment({ ...production, HDFC_BASE_URL: 'https://smartgateway.hdfc.bank.in' }),
+    ).toMatchObject({ HDFC_ENABLED: true, HDFC_BASE_URL: 'https://smartgateway.hdfc.bank.in' });
+  });
+
+  it('keeps the HDFC gateway optional until it is enabled', () => {
+    expect(validateEnvironment(validEnvironment)).toMatchObject({
+      HDFC_ENABLED: false,
+      HDFC_BASE_URL: 'https://smartgateway.hdfcuat.bank.in',
+    });
+    expect(
+      validateEnvironment({ ...validEnvironment, HDFC_MERCHANT_ID: '' }).HDFC_MERCHANT_ID,
+    ).toBeUndefined();
+  });
+
+  it('requires merchant credentials and webhook auth when HDFC is enabled', () => {
+    expect(() => validateEnvironment({ ...validEnvironment, HDFC_ENABLED: 'true' })).toThrow(
+      /HDFC_MERCHANT_ID: is required when HDFC_ENABLED=true.*HDFC_WEBHOOK_PASSWORD: is required/,
+    );
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        HDFC_ENABLED: 'true',
+        HDFC_MERCHANT_ID: 'SG1234',
+        HDFC_API_KEY: 'api-key',
+        HDFC_PAYMENT_PAGE_CLIENT_ID: 'hdfcmaster',
+        HDFC_WEBHOOK_USERNAME: 'glockery',
+        HDFC_WEBHOOK_PASSWORD: 'w'.repeat(24),
+      }),
+    ).toMatchObject({ HDFC_ENABLED: true, HDFC_PAYMENT_PAGE_CLIENT_ID: 'hdfcmaster' });
+  });
+
+  it('rejects HDFC webhook usernames with special characters', () => {
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, HDFC_WEBHOOK_USERNAME: 'glockery@shop' }),
+    ).toThrow('HDFC_WEBHOOK_USERNAME: must be alphanumeric');
+  });
+
+  it('rejects a plain HTTP HDFC gateway URL in production', () => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        NODE_ENV: 'production',
+        FRONTEND_ORIGIN: 'https://shop.example.com',
+        API_PUBLIC_URL: 'https://api.example.com',
+        CSRF_SECRET: 'production-csrf-secret-that-is-at-least-32-characters',
+        HDFC_ENABLED: 'true',
+        HDFC_BASE_URL: 'http://smartgateway.example.bank',
+        HDFC_MERCHANT_ID: 'SG1234',
+        HDFC_API_KEY: 'api-key',
+        HDFC_WEBHOOK_USERNAME: 'glockery',
+        HDFC_WEBHOOK_PASSWORD: 'w'.repeat(24),
+      }),
+    ).toThrow('HDFC_BASE_URL: must use HTTPS in production');
   });
 });

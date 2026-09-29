@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import ErrorBoundary from '../components/ErrorBoundary';
 import CartDrawer from '../components/CartDrawer';
 import FloatingContactButtons from '../components/FloatingContactButtons';
@@ -21,7 +22,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
           <WishlistProvider>
             <ToastProvider>
               <OfflineBanner />
-              <ScrollToTop />
+              {/* Reads search params; its own boundary keeps static pages server-rendered. */}
+              <Suspense fallback={null}>
+                <ScrollToTop />
+              </Suspense>
               <FloatingContactButtons />
               {children}
               <CartDrawer />

@@ -1,6 +1,6 @@
 import { IsUUID } from 'class-validator';
 
-export class CreatePaymentIntentDto {
+export class CreateHdfcIntentDto {
   @IsUUID()
   quoteId!: string;
 }

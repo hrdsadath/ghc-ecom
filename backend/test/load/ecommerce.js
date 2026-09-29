@@ -1,5 +1,5 @@
 /* global __ENV, __VU, __ITER */
-import crypto from 'k6/crypto';
+import encoding from 'k6/encoding';
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
@@ -89,27 +89,24 @@ export function cartCheckout() {
 }
 
 export function webhook() {
-  if (!__ENV.RAZORPAY_WEBHOOK_SECRET) return;
-  const eventId = `load-${__VU}-${__ITER}-${Date.now()}`;
+  if (!__ENV.HDFC_WEBHOOK_USERNAME || !__ENV.HDFC_WEBHOOK_PASSWORD) return;
+  // Unknown order ids are stored and acknowledged without calling SmartGateway.
   const payload = JSON.stringify({
-    event: 'diagnostic.load_test',
-    payload: {},
+    id: `evt_load_${__VU}_${__ITER}_${Date.now()}`,
+    event_name: 'DIAGNOSTIC_LOAD_TEST',
+    content: { order: { order_id: `LOAD${__VU}X${__ITER}` } },
   });
-  const signature = crypto.hmac(
-    'sha256',
-    __ENV.RAZORPAY_WEBHOOK_SECRET,
-    payload,
-    'hex',
+  const credentials = encoding.b64encode(
+    `${__ENV.HDFC_WEBHOOK_USERNAME}:${__ENV.HDFC_WEBHOOK_PASSWORD}`,
   );
-  const response = http.post(`${baseUrl}/api/v1/webhooks/razorpay`, payload, {
+  const response = http.post(`${baseUrl}/api/v1/webhooks/hdfc`, payload, {
     headers: {
       'content-type': 'application/json',
-      'x-razorpay-signature': signature,
-      'x-razorpay-event-id': eventId,
+      authorization: `Basic ${credentials}`,
     },
     tags: { flow: 'webhook' },
   });
-  check(response, { 'webhook accepted': (result) => result.status === 202 });
+  check(response, { 'webhook accepted': (result) => result.status === 200 });
 }
 
 export function adminSearch() {

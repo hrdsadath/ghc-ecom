@@ -1,18 +1,22 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { PaymentQueueService } from './payment-queue.service';
-import { RazorpayService } from './razorpay.service';
 import { WebhooksService } from './webhooks.service';
 
 describe('WebhooksService', () => {
-  const rawBody = Buffer.from('{"event":"payment.captured","payload":{}}');
+  const rawBody = Buffer.from(
+    JSON.stringify({
+      id: 'evt_V2_1',
+      event_name: 'ORDER_SUCCEEDED',
+      content: { order: { order_id: 'GHCMF0ABCDE12345678' } },
+    }),
+  );
   let prisma: {
     webhookEvent: {
       findUnique: jest.Mock;
       create: jest.Mock;
     };
   };
-  let razorpay: { verifyWebhookSignature: jest.Mock };
   let queue: { enqueueWebhook: jest.Mock };
   let service: WebhooksService;
 
@@ -20,52 +24,57 @@ describe('WebhooksService', () => {
     prisma = {
       webhookEvent: {
         findUnique: jest.fn().mockResolvedValue(null),
-        create: jest.fn().mockResolvedValue({
-          id: 'event-local-1',
-          providerEventId: 'event-provider-1',
-        }),
+        create: jest.fn().mockResolvedValue({ id: 'event-local-1' }),
       },
     };
-    razorpay = { verifyWebhookSignature: jest.fn().mockReturnValue(true) };
     queue = { enqueueWebhook: jest.fn().mockResolvedValue(undefined) };
     service = new WebhooksService(
       prisma as unknown as PrismaService,
-      razorpay as unknown as RazorpayService,
       queue as unknown as PaymentQueueService,
     );
   });
 
-  it('rejects a tampered webhook before persistence', async () => {
-    razorpay.verifyWebhookSignature.mockReturnValue(false);
-
-    await expect(service.ingest(rawBody, 'invalid', 'event-provider-1')).rejects.toBeInstanceOf(
-      UnauthorizedException,
-    );
-    expect(prisma.webhookEvent.create).not.toHaveBeenCalled();
-    expect(queue.enqueueWebhook).not.toHaveBeenCalled();
-  });
-
-  it('persists and enqueues a valid event', async () => {
-    await service.ingest(rawBody, 'valid', 'event-provider-1');
+  it('persists and enqueues an event under its SmartGateway id', async () => {
+    await service.ingest(rawBody);
 
     expect(prisma.webhookEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        providerEventId: 'event-provider-1',
-        eventType: 'payment.captured',
+        providerEventId: 'evt_V2_1',
+        eventType: 'ORDER_SUCCEEDED',
       }),
     });
     expect(queue.enqueueWebhook).toHaveBeenCalledWith('event-local-1');
   });
 
-  it('accepts duplicate processed delivery without creating or enqueuing it again', async () => {
-    prisma.webhookEvent.findUnique.mockResolvedValue({
-      id: 'event-local-1',
-      status: 'PROCESSED',
-    });
+  it('deduplicates events without an id by body hash', async () => {
+    await service.ingest(Buffer.from('{"event_name":"ORDER_FAILED"}'));
 
-    await service.ingest(rawBody, 'valid', 'event-provider-1');
+    expect(prisma.webhookEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        providerEventId: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      }),
+    });
+  });
+
+  it('accepts a duplicate processed delivery without creating or enqueuing it again', async () => {
+    prisma.webhookEvent.findUnique.mockResolvedValue({ id: 'event-local-1', status: 'PROCESSED' });
+
+    await service.ingest(rawBody);
 
     expect(prisma.webhookEvent.create).not.toHaveBeenCalled();
     expect(queue.enqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  it('re-enqueues a duplicate delivery of a failed event', async () => {
+    prisma.webhookEvent.findUnique.mockResolvedValue({ id: 'event-local-1', status: 'FAILED' });
+
+    await service.ingest(rawBody);
+
+    expect(queue.enqueueWebhook).toHaveBeenCalledWith('event-local-1');
+  });
+
+  it('rejects a body that is not a JSON object', async () => {
+    await expect(service.ingest(Buffer.from('[1]'))).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.webhookEvent.create).not.toHaveBeenCalled();
   });
 });

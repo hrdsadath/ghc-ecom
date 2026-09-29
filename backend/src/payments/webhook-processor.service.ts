@@ -1,43 +1,35 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Order, PaymentStatus, RefundStatus, ReturnStatus, WebhookStatus } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
+import { WebhookStatus } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
-import { PaymentsService } from './payments.service';
-import { RazorpayPayment, RazorpayService } from './razorpay.service';
+import { HdfcPaymentsService } from './hdfc/hdfc-payments.service';
 
-interface RazorpayWebhookPayload {
-  event: string;
-  payload?: {
-    payment?: { entity?: RazorpayPayment };
-    order?: { entity?: { id?: string } };
-    refund?: {
-      entity?: {
-        id?: string;
-        amount?: number;
-        currency?: string;
-        payment_id?: string;
-        status?: 'pending' | 'processed' | 'failed';
-      };
-    };
-  };
-}
+const MAX_WEBHOOK_ATTEMPTS = 8;
+const PROCESSING_LEASE_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class WebhookProcessorService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly payments: PaymentsService,
-    private readonly razorpay: RazorpayService,
+    private readonly payments: HdfcPaymentsService,
   ) {}
 
   async process(eventId: string): Promise<void> {
     const claimed = await this.prisma.webhookEvent.updateMany({
       where: {
         id: eventId,
-        status: { in: [WebhookStatus.RECEIVED, WebhookStatus.FAILED] },
+        attempts: { lt: MAX_WEBHOOK_ATTEMPTS },
+        OR: [
+          { status: { in: [WebhookStatus.RECEIVED, WebhookStatus.FAILED] } },
+          {
+            status: WebhookStatus.PROCESSING,
+            processingStartedAt: { lte: this.leaseCutoff() },
+          },
+        ],
       },
       data: {
         status: WebhookStatus.PROCESSING,
         attempts: { increment: 1 },
+        processingStartedAt: new Date(),
         lastError: null,
       },
     });
@@ -47,12 +39,15 @@ export class WebhookProcessorService {
 
     try {
       const event = await this.prisma.webhookEvent.findUniqueOrThrow({ where: { id: eventId } });
-      await this.handle(event.payload as unknown as RazorpayWebhookPayload);
+      // The payload only identifies the order; the outcome is re-read from the
+      // Order Status API. Refund state is reconciled by RefundsService.
+      await this.payments.handleWebhook(event.payload as Record<string, unknown>);
       await this.prisma.webhookEvent.update({
         where: { id: eventId },
         data: {
           status: WebhookStatus.PROCESSED,
           processedAt: new Date(),
+          processingStartedAt: null,
           lastError: null,
         },
       });
@@ -61,6 +56,7 @@ export class WebhookProcessorService {
         where: { id: eventId },
         data: {
           status: WebhookStatus.FAILED,
+          processingStartedAt: null,
           lastError: error instanceof Error ? error.message.slice(0, 1000) : 'Unknown error',
         },
       });
@@ -68,111 +64,31 @@ export class WebhookProcessorService {
     }
   }
 
-  private async handle(payload: RazorpayWebhookPayload): Promise<void> {
-    if (payload.event.startsWith('refund.')) {
-      await this.handleRefund(payload);
-      return;
-    }
-    if (payload.event === 'payment.captured') {
-      const payment = this.requirePayment(payload);
-      const order = await this.orderByProviderId(payment.order_id);
-      await this.payments.applyCapturedPayment(order, payment);
-      return;
-    }
-    if (payload.event === 'payment.failed') {
-      const payment = this.requirePayment(payload);
-      const order = await this.orderByProviderId(payment.order_id);
-      await this.payments.applyFailedPayment(order, payment);
-      return;
-    }
-    if (payload.event === 'order.paid') {
-      const payment = payload.payload?.payment?.entity;
-      if (payment?.status === 'captured') {
-        const order = await this.orderByProviderId(payment.order_id);
-        await this.payments.applyCapturedPayment(order, payment);
-        return;
-      }
-      const providerOrderId = payload.payload?.order?.entity?.id;
-      const order = await this.orderByProviderId(providerOrderId ?? null);
-      const providerPayments = await this.razorpay.fetchPaymentsForOrder(providerOrderId!);
-      const captured = providerPayments.find((item) => item.status === 'captured');
-      if (!captured) {
-        throw new NotFoundException('Captured payment was not found for paid order');
-      }
-      await this.payments.applyCapturedPayment(order, captured);
-    }
-  }
-
-  private async handleRefund(payload: RazorpayWebhookPayload): Promise<void> {
-    const entity = payload.payload?.refund?.entity;
-    if (!entity?.id || !entity.payment_id || !entity.status) {
-      throw new NotFoundException('Webhook refund entity is missing');
-    }
-    const refund = await this.prisma.refund.findUnique({
-      where: { razorpayRefundId: entity.id },
-      include: { payment: true },
+  async processPending(limit = 25): Promise<number> {
+    const events = await this.prisma.webhookEvent.findMany({
+      where: {
+        attempts: { lt: MAX_WEBHOOK_ATTEMPTS },
+        OR: [
+          { status: { in: [WebhookStatus.RECEIVED, WebhookStatus.FAILED] } },
+          {
+            status: WebhookStatus.PROCESSING,
+            processingStartedAt: { lte: this.leaseCutoff() },
+          },
+        ],
+      },
+      select: { id: true },
+      orderBy: { receivedAt: 'asc' },
+      take: Math.min(Math.max(limit, 1), 100),
     });
-    if (!refund) {
-      throw new NotFoundException('Local refund was not found for webhook');
+    let processed = 0;
+    for (const event of events) {
+      await this.process(event.id);
+      processed += 1;
     }
-    if (
-      entity.payment_id !== refund.payment.razorpayPaymentId ||
-      entity.amount !== refund.amountPaise ||
-      entity.currency !== refund.currency
-    ) {
-      throw new NotFoundException('Webhook refund does not match local refund');
-    }
-    const status =
-      entity.status === 'processed'
-        ? RefundStatus.PROCESSED
-        : entity.status === 'failed'
-          ? RefundStatus.FAILED
-          : RefundStatus.PENDING;
-    await this.prisma.$transaction(async (transaction) => {
-      await transaction.refund.update({
-        where: { id: refund.id },
-        data: {
-          status,
-          rawPayload: entity,
-          processedAt: status === RefundStatus.PROCESSED ? new Date() : undefined,
-        },
-      });
-      if (status !== RefundStatus.PROCESSED) return;
-      const totals = await transaction.refund.aggregate({
-        where: { paymentId: refund.paymentId, status: RefundStatus.PROCESSED },
-        _sum: { amountPaise: true },
-      });
-      if ((totals._sum.amountPaise ?? 0) >= refund.payment.amountPaise) {
-        await transaction.payment.update({
-          where: { id: refund.paymentId },
-          data: { status: PaymentStatus.REFUNDED },
-        });
-      }
-      if (refund.returnRequestId) {
-        await transaction.returnRequest.update({
-          where: { id: refund.returnRequestId },
-          data: { status: ReturnStatus.REFUNDED },
-        });
-      }
-    });
+    return processed;
   }
 
-  private requirePayment(payload: RazorpayWebhookPayload): RazorpayPayment {
-    const payment = payload.payload?.payment?.entity;
-    if (!payment?.id || !payment.order_id) {
-      throw new NotFoundException('Webhook payment entity is missing');
-    }
-    return payment;
-  }
-
-  private async orderByProviderId(razorpayOrderId: string | null): Promise<Order> {
-    if (!razorpayOrderId) {
-      throw new NotFoundException('Webhook payment has no Razorpay order');
-    }
-    const order = await this.prisma.order.findUnique({ where: { razorpayOrderId } });
-    if (!order) {
-      throw new NotFoundException('Local order was not found for webhook');
-    }
-    return order;
+  private leaseCutoff(): Date {
+    return new Date(Date.now() - PROCESSING_LEASE_MS);
   }
 }

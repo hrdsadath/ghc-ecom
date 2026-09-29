@@ -3,7 +3,7 @@
 ## Local setup
 
 1. Copy `.env.example` to `.env`.
-2. Replace every placeholder with development Supabase, Razorpay, and SMTP credentials.
+2. Replace every placeholder with development Supabase, HDFC SmartGateway sandbox, and SMTP credentials.
 3. Install dependencies with `npm ci`.
 4. Generate the client with `npm run prisma:generate`.
 5. Apply migrations with `npx prisma migrate deploy`.
@@ -12,7 +12,7 @@
 Swagger documentation is served at `http://localhost:3001/api/v1/docs`.
 
 Production deployment, rollback, incident, backup/restore, security rotation,
-load-test, and Razorpay launch procedures are in
+load-test, and HDFC SmartGateway launch procedures are in
 [`docs/production-readiness.md`](docs/production-readiness.md).
 
 ## Supabase Phase 2 setup
@@ -40,5 +40,5 @@ All later role assignments should use the authenticated admin API:
 PUT /api/v1/admin/users/:userId/roles
 ```
 
-Never place `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, or
-`RAZORPAY_WEBHOOK_SECRET` in the React application.
+Never place `SUPABASE_SERVICE_ROLE_KEY`, `HDFC_API_KEY`, or
+`HDFC_WEBHOOK_PASSWORD` in the React application.

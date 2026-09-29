@@ -121,8 +121,8 @@ const QuickSearchModal: React.FC<QuickSearchModalProps> = ({ isOpen, onClose }) 
                                         className="group flex w-full items-center justify-between rounded-sm border border-gold-500/10 bg-obsidian/40 p-3 text-left transition hover:border-gold-400 hover:bg-carbon"
                                     >
                                         <div className="flex items-center gap-3">
-                                            {product.images?.[0]?.mediumUrl ? (
-                                                <img src={product.images[0].mediumUrl} alt={product.name} className="w-12 h-12 object-cover border border-gold-500/20 rounded-sm" />
+                                            {product.images?.[0]?.thumbnailUrl ? (
+                                                <img src={product.images[0].thumbnailUrl} loading="lazy" decoding="async" alt={product.name} className="w-12 h-12 shrink-0 object-contain bg-panel border border-gold-500/20 rounded-sm" />
                                             ) : (
                                                 <div className="w-12 h-12 bg-panel border border-gold-500/20 rounded-sm grid place-items-center text-xs text-gold-400 font-display">G</div>
                                             )}

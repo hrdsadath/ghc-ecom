@@ -9,7 +9,7 @@
 4. Deploy the API and workers with the same image and secret version. Keep at least
    one previous image available.
 5. Verify `/api/v1/health`, `/api/v1/ready`, the admin operations dashboard, Redis
-   workers, a catalogue read, a cart quote, and a Razorpay test-mode payment.
+   workers, a catalogue read, a cart quote, and an HDFC SmartGateway sandbox payment.
 6. Increase traffic gradually while watching error rate, p95 latency, failed jobs,
    payment mismatches, webhook failures, refunds, and low stock.
 
@@ -26,7 +26,7 @@
 
 1. Declare severity and incident owner; preserve logs and request/event IDs.
 2. Contain the fault by disabling the affected mutation or pausing its worker.
-3. For payment incidents, compare local order/payment/refund records with Razorpay,
+3. For payment incidents, compare local order/payment/refund records with the SmartGateway dashboard,
    replay only idempotent webhook/outbox work, and never manually mark captured
    without provider evidence.
 4. For inventory incidents, stop checkout, reconcile reservations and movements, and
@@ -51,7 +51,7 @@
 
 - Store secrets only in the deployment secret manager. Frontend builds receive only
   the public API base URL; payment public key is returned by the API per intent.
-- Rotate Supabase service role, Razorpay key secret/webhook secret, SMTP, Redis,
+- Rotate Supabase service role, HDFC API key/webhook password, SMTP, Redis,
   courier, notification, and alert credentials one provider at a time.
 - Deploy code accepting old and new webhook secrets during the short transition when
   the provider supports it; verify delivery, then revoke the old value.
@@ -71,7 +71,7 @@ k6 run \
   -e BASE_URL=https://staging-api.example.com \
   -e VARIANT_ID=STOCKED_VARIANT_UUID \
   -e ADMIN_TOKEN=SHORT_LIVED_ADMIN_JWT \
-  -e RAZORPAY_WEBHOOK_SECRET=STAGING_WEBHOOK_SECRET \
+  -e HDFC_WEBHOOK_USERNAME=STAGING_WEBHOOK_USERNAME \n  -e HDFC_WEBHOOK_PASSWORD=STAGING_WEBHOOK_PASSWORD \
   test/load/ecommerce.js
 ```
 
@@ -87,23 +87,20 @@ Run the passive OpenAPI security gate with `STAGING_API_URL=... npm run test:das
 It writes ZAP JSON and HTML evidence under `artifacts/`. Active and authenticated
 penetration testing still requires explicit staging authorization.
 
-## Razorpay test-to-live launch
+## HDFC SmartGateway sandbox-to-production launch
 
-1. Replace placeholder test secrets and register the HTTPS webhook endpoint.
-   Production rejects `rzp_test_*` keys unless the isolated staging environment sets
-   `ALLOW_TEST_PAYMENTS_IN_PRODUCTION=true`; never set that override in the live environment.
-2. Subscribe to `payment.captured`, `payment.failed`, `order.paid`,
-   `refund.created`, `refund.processed`, and `refund.failed`.
-3. In test mode verify success, failure, cancellation, duplicate delivery,
-   delayed webhook, full refund, partial refund, and reconciliation.
-4. Record staging sign-off. Create separate live secrets, rotate the application
-   secret version, and keep test and live records/environments isolated.
+1. Configure the sandbox credentials and register the HTTPS webhook endpoint with
+   Basic credentials. Production rejects the sandbox base URL unless the isolated
+   staging environment sets `ALLOW_TEST_PAYMENTS_IN_PRODUCTION=true`; never set that
+   override in the live environment.
+2. Enable the order and refund webhook events in the dashboard.
+3. In the sandbox verify success (amount < ₹500), failure (₹500–₹699),
+   pending-then-success (≥ ₹700), abandonment, duplicate delivery, delayed webhook,
+   full refund, partial refund, and reconciliation.
+4. Record staging sign-off. Generate a production API key, switch `HDFC_BASE_URL`
+   to `https://smartgateway.hdfc.bank.in`, clear `HDFC_PAYMENT_PAGE_CLIENT_ID` (it
+   defaults to the merchant ID), and keep sandbox and production records isolated.
 5. Process a low-value live order with named approval, verify settlement and invoice,
    then increase traffic gradually. Roll back checkout availability on mismatch.
-
-Use `npm run test:staging:razorpay` to create the staging cart, quote, Razorpay Order,
-and duplicate signed diagnostic webhook. After completing Razorpay Checkout, rerun it
-with the returned payment ID/signature; with `STAGING_ADMIN_TOKEN`, it also creates
-the idempotent test refund.
 
 Record every gate using [`readiness-evidence-template.md`](readiness-evidence-template.md).

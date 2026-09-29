@@ -1,3 +1,7 @@
-import InfoPage from '../../views/info';
-export const metadata = { title: 'Shipping and returns' };
-export default function Page() { return <InfoPage kind="shipping" />; }
+import InfoRoute, { infoMetadata } from '../../components/InfoRoute';
+
+export const metadata = infoMetadata('shipping');
+
+export default function Page() {
+  return <InfoRoute kind="shipping" />;
+}

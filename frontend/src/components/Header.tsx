@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, NavLink, useLocation } from '../lib/router';
+import { Link, NavLink, usePath } from '../lib/router';
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { useWishlist } from '../contexts/WishlistContext';
@@ -22,9 +22,9 @@ const Header = () => {
     const { wishlistIds } = useWishlist();
     const [mobileOpen, setMobileOpen] = useState(false);
     const [searchOpen, setSearchOpen] = useState(false);
-    const location = useLocation();
+    const pathname = usePath();
 
-    useEffect(() => setMobileOpen(false), [location.pathname]);
+    useEffect(() => setMobileOpen(false), [pathname]);
 
     const closeMobileMenu = () => setMobileOpen(false);
     const triggerSearch = () => {
@@ -133,7 +133,7 @@ const Header = () => {
                                         <IconHome size={17} />
                                         Shop
                                     </span>
-                                    <span className="text-xs text-cream/40">{location.pathname === '/' ? 'Home' : 'All items'}</span>
+                                    <span className="text-xs text-cream/40">{pathname === '/' ? 'Home' : 'All items'}</span>
                                 </NavLink>
                                 <NavLink
                                     to="/search"

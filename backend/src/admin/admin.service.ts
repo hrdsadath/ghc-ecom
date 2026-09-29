@@ -162,17 +162,23 @@ export class AdminService {
       if (actorId === userId) {
         throw new BadRequestException('You cannot remove your own administrator access');
       }
-      const administratorCount = await this.prisma.userRole.count({
-        where: { role: AppRole.ADMIN },
-      });
-      if (administratorCount <= 1) {
-        throw new BadRequestException('The final administrator cannot be removed');
-      }
     }
 
-    const result = await this.prisma.userRole.deleteMany({
-      where: { userId, role },
-    });
+    const result =
+      role === AppRole.ADMIN
+        ? await this.prisma.$transaction(async (transaction) => {
+            await transaction.$executeRaw`select pg_advisory_xact_lock(
+              hashtextextended('staff-admin-role-invariant', 0)
+            )`;
+            const administratorCount = await transaction.userRole.count({
+              where: { role: AppRole.ADMIN },
+            });
+            if (administratorCount <= 1) {
+              throw new BadRequestException('The final administrator cannot be removed');
+            }
+            return transaction.userRole.deleteMany({ where: { userId, role } });
+          })
+        : await this.prisma.userRole.deleteMany({ where: { userId, role } });
     if (!result.count) return;
 
     await this.audit.record({

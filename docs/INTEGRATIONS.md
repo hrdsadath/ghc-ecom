@@ -22,30 +22,78 @@
     removes the recovery fragment from the address bar.
 11. Verify RLS with anon/customer tokens. Never expose service-role key to frontend.
 
-## Razorpay
+## HDFC SmartGateway
 
-1. Start with test-mode key ID, secret, and webhook secret.
-2. Set webhook URL:
-   `https://YOUR_API/api/v1/webhooks/razorpay`.
-3. Subscribe to `payment.captured`, `payment.failed`, `order.paid`,
-   `refund.created`, `refund.processed`, and `refund.failed`.
-4. Keep provider event ID header enabled; backend uses it for deduplication.
-5. Run staging verifier:
+HDFC SmartGateway (Juspay-powered, Basic Auth API) is the only payment gateway; it
+replaced Razorpay and the earlier FSS scaffold. Production refuses to start unless
+`HDFC_ENABLED=true`. API reference:
+<https://smartgateway.hdfc.bank.in/docs/smartgateway-api-ref-basicauth/docs/overview/integration-architecture>
 
-   ```bash
-   npm run test:staging:razorpay --workspace=backend
+1. Get the Merchant ID from the bank and create an API key in the SmartGateway
+   dashboard (Payments → Settings → Security → API Keys). Keep the key server-side.
+2. Configure the backend (sandbox shown):
+
+   ```env
+   HDFC_ENABLED=true
+   HDFC_BASE_URL=https://smartgateway.hdfcuat.bank.in
+   HDFC_MERCHANT_ID=YOUR_MERCHANT_ID
+   HDFC_API_KEY=YOUR_API_KEY
+   HDFC_PAYMENT_PAGE_CLIENT_ID=hdfcmaster
+   HDFC_WEBHOOK_USERNAME=glockeryhooks
+   HDFC_WEBHOOK_PASSWORD=long-random-secret
    ```
 
-6. Test success, cancel, failure, duplicate webhook, delayed webhook, full/partial
-   refund, and reconciliation before live keys.
-7. Live and test records/secrets must remain isolated.
+   For production switch `HDFC_BASE_URL` to `https://smartgateway.hdfc.bank.in`,
+   use the production API key, and clear `HDFC_PAYMENT_PAGE_CLIENT_ID` so it
+   defaults to the merchant ID.
+3. In the dashboard (Payments → Settings → Webhook) set the webhook URL to
+   `https://YOUR_API/api/v1/webhooks/hdfc` (production:
+   `https://www.glockery.com/api/v1/webhooks/hdfc`) with the same username and
+   password, and enable the order and refund events.
+4. The session `return_url` defaults to `FRONTEND_ORIGIN + /checkout/result`
+   (HTTPS, no query string, no further redirect, as SmartGateway requires). Override
+   with `HDFC_RETURN_URL` only if the storefront lives elsewhere.
+5. The storefront needs no configuration or CSP allowance: the browser navigates
+   to the SmartGateway payment link (iframes are not supported).
+6. Flow: `POST /checkout/hdfc/intent` creates a pending order with an
+   alphanumeric `hdfcOrderId` (under 21 characters) and calls the Session API;
+   the browser opens `payment_links.web`; SmartGateway returns the customer to
+   `/checkout/result?order_id=…`; the page calls `POST /payments/hdfc/status`,
+   which runs the server-to-server Order Status API, verifies the order id and
+   amount, and confirms or fails the order idempotently. Return-URL parameters and
+   webhook payloads are never trusted on their own: both only trigger the same
+   Order Status check. Webhooks are authenticated with the dashboard Basic
+   credentials; a failed status check answers non-200 so SmartGateway retries.
+   Webhooks are stored in `webhook_events` (deduplicated by SmartGateway event id)
+   and processed by the payment queue. Pending orders are reconciled every five
+   minutes (`POST /admin/payments/reconcile` runs it on demand).
+7. Status mapping: `CHARGED` confirms; `AUTHENTICATION_FAILED`,
+   `AUTHORIZATION_FAILED`, `JUSPAY_DECLINED`, `AUTO_REFUNDED` and `VOIDED` fail the
+   order; everything else (`NEW`, `PENDING_VBV`, `AUTHORIZING`, …) stays pending
+   until the quote's payment window closes. A charge that lands after the order
+   failed is recorded and logged for a manual refund.
+8. Refunds use the Refund Order API with a `unique_request_id` derived from the
+   refund idempotency key, so retries cannot refund twice; pending refunds are
+   reconciled from the Order Status API every five minutes. Orders paid through
+   Razorpay before the switch keep their ids in `legacy_razorpay_references` and
+   must be refunded manually.
+9. Sandbox testing: amounts under ₹500 succeed, ₹500–₹699 fail, ₹700 and above go
+   pending then succeed; UPI `success@upi` / `failure@upi`; card
+   `4012 0000 0000 1097`, any future expiry and CVV, OTP `000000`.
 
-Frontend loads Razorpay's official checkout script. Production CSP allowlists only
-Razorpay script/frame/connect origins. Re-test checkout whenever provider domains or
-CSP change. Razorpay currently documents a mutable hosted Checkout script rather than
-a stable versioned SRI artifact; do not self-host or pin an unofficial copy without
-written provider support. Treat the exact allowlisted vendor origin as a reviewed
-supply-chain dependency.
+### Local sandbox testing
+
+SmartGateway must reach the return page and the webhook over HTTPS, so run one
+tunnel to the storefront (`next dev` proxies `/api/*` to the API, so the tunnel
+covers both). Use the tunnel URL for the whole test; cart tokens and cookies are
+per-origin.
+
+1. `ngrok http 3000` (a free static domain keeps the URL stable between runs).
+2. `backend/.env`: `FRONTEND_ORIGIN=https://TUNNEL`, `FRONTEND_ORIGINS=http://localhost:3000`,
+   plus the sandbox `HDFC_*` values above.
+3. `frontend/.env.local`: `ALLOWED_DEV_ORIGINS=TUNNEL_HOSTNAME`.
+4. Dashboard webhook URL: `https://TUNNEL/api/v1/webhooks/hdfc`.
+5. Restart both dev servers, open `https://TUNNEL`, and pay with the sandbox data above.
 
 ## Redis and BullMQ
 

@@ -108,7 +108,7 @@ const ProductVariantSelector: React.FC<ProductVariantSelectorProps> = ({ product
                                             className={`flex min-h-12 items-center gap-2 border px-3 text-sm text-cream/70 transition-colors hover:border-cream/40 hover:text-cream peer-checked:border-gold-400 peer-checked:bg-gold-400/10 peer-checked:text-cream peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-gold-300 ${compact ? "" : "sm:px-4"}`}
                                         >
                                             {image ? (
-                                                <img src={image.thumbnailUrl} alt="" className="size-8 shrink-0 object-cover" />
+                                                <img loading="lazy" decoding="async" src={image.thumbnailUrl} alt="" className="size-8 shrink-0 bg-panel object-contain" />
                                             ) : colorHex ? (
                                                 <span className="size-6 shrink-0 rounded-full border border-cream/25" style={{ backgroundColor: colorHex }} aria-hidden="true" />
                                             ) : null}

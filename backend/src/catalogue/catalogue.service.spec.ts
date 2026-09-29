@@ -19,7 +19,9 @@ describe('CatalogueService', () => {
   });
 
   it('lists only published products in published categories with active variants', async () => {
-    const products = [{ id: 'product-id', status: ProductStatus.PUBLISHED, variants: [] }];
+    const products = [
+      { id: 'product-id', status: ProductStatus.PUBLISHED, variants: [], images: [] },
+    ];
     const prisma = {
       product: {
         findMany: jest.fn().mockResolvedValue(products),
@@ -40,13 +42,24 @@ describe('CatalogueService', () => {
       page: 1,
       limit: 20,
     });
-    expect(prisma.product.findMany).toHaveBeenCalledWith(
+    expect(prisma.product.findMany).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         relationLoadStrategy: 'join',
         where: expect.objectContaining({
           status: ProductStatus.PUBLISHED,
           category: { isPublished: true },
         }),
+        select: expect.objectContaining({
+          variants: expect.objectContaining({ where: { isActive: true } }),
+        }),
+      }),
+    );
+    expect(prisma.product.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        relationLoadStrategy: 'join',
+        where: { id: { in: ['product-id'] } },
         include: expect.objectContaining({
           variants: expect.objectContaining({ where: { isActive: true } }),
         }),
@@ -75,7 +88,9 @@ describe('CatalogueService', () => {
   });
 
   it('serves repeated public catalogue requests from Redis', async () => {
-    const products = [{ id: 'product-id', status: ProductStatus.PUBLISHED, variants: [] }];
+    const products = [
+      { id: 'product-id', status: ProductStatus.PUBLISHED, variants: [], images: [] },
+    ];
     const prisma = {
       product: {
         findMany: jest.fn().mockResolvedValue(products),
@@ -103,9 +118,128 @@ describe('CatalogueService', () => {
     await service.listPublicProducts({ page: 1, limit: 20 });
     await service.listPublicProducts({ page: 1, limit: 20 });
 
-    expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
-    expect(prisma.product.count).toHaveBeenCalledTimes(1);
+    // One ranking query plus one page-of-cards query, both from the first request only.
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(2);
     expect(redis.setJson).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves a stale public entry immediately and refreshes it once in the background', async () => {
+    let finishRefresh: (value: unknown) => void = () => undefined;
+    const prisma = {
+      category: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([{ id: 'old' }])
+          .mockReturnValueOnce(
+            new Promise((resolve) => {
+              finishRefresh = resolve;
+            }),
+          ),
+      },
+    };
+    const values = new Map<string, unknown>();
+    const redis = {
+      getJson: jest.fn(async (key: string) => values.get(key) ?? null),
+      setJson: jest.fn(async (key: string, value: unknown) => {
+        values.set(key, value);
+      }),
+      get: jest.fn().mockResolvedValue('1'),
+      increment: jest.fn(),
+    };
+    const service = new CatalogueService(
+      prisma as never,
+      audit as never,
+      supabase as never,
+      imageProcessor as never,
+      videoProcessor as never,
+      redis as never,
+    );
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+
+    await expect(service.listPublicCategories()).resolves.toEqual([{ id: 'old' }]);
+    now.mockReturnValue(1_000 + 31_000);
+    await expect(service.listPublicCategories()).resolves.toEqual([{ id: 'old' }]);
+    await expect(service.listPublicCategories()).resolves.toEqual([{ id: 'old' }]);
+    finishRefresh([{ id: 'new' }]);
+    await new Promise((resolve) => setImmediate(resolve));
+    await expect(service.listPublicCategories()).resolves.toEqual([{ id: 'new' }]);
+
+    expect(prisma.category.findMany).toHaveBeenCalledTimes(2);
+    now.mockRestore();
+  });
+
+  it('lists in-stock products ahead of sold-out ones across pages', async () => {
+    const stock = (onHand: number, reserved = 0) => [{ inventoryLevels: [{ onHand, reserved }] }];
+    // Newest first, as returned by the ranking query.
+    const ranked = [
+      { id: 'sold-out-new', variants: stock(0) },
+      { id: 'reserved-out', variants: stock(2, 2) },
+      { id: 'in-stock-old', variants: stock(4) },
+      { id: 'in-stock-oldest', variants: [...stock(0), ...stock(1)] },
+    ];
+    const prisma = {
+      product: {
+        findMany: jest.fn(async (args: { select?: unknown; where: { id?: { in: string[] } } }) =>
+          args.select
+            ? ranked
+            : [...(args.where.id?.in ?? [])].reverse().map((id) => ({ id, variants: [], images: [] })),
+        ),
+      },
+    };
+    const service = new CatalogueService(
+      prisma as never,
+      audit as never,
+      supabase as never,
+      imageProcessor as never,
+    );
+
+    const first = await service.listPublicProducts({ page: 1, limit: 3 });
+    const second = await service.listPublicProducts({ page: 2, limit: 3 });
+
+    expect(first.items.map((item) => item.id)).toEqual(['in-stock-old', 'in-stock-oldest', 'sold-out-new']);
+    expect(second.items.map((item) => item.id)).toEqual(['reserved-out']);
+    expect(first.total).toBe(4);
+  });
+
+  it('lists only card images and filters by requested ids', async () => {
+    const shared = { id: 'shared', variantLinks: [] };
+    const extraShared = { id: 'extra-shared', variantLinks: [] };
+    const goldFirst = { id: 'gold-1', variantLinks: [{ variantId: 'gold' }] };
+    const goldSecond = { id: 'gold-2', variantLinks: [{ variantId: 'gold' }] };
+    const prisma = {
+      product: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'product-id',
+            images: [goldFirst, shared, goldSecond, extraShared],
+            variants: [{ id: 'gold', inventoryLevels: [{ onHand: 5, reserved: 2 }] }],
+          },
+        ]),
+        count: jest.fn().mockResolvedValue(1),
+      },
+    };
+    const service = new CatalogueService(
+      prisma as never,
+      audit as never,
+      supabase as never,
+      imageProcessor as never,
+    );
+    const ids = ['2b4f4c3e-9a57-4a39-9d5d-6c8f0b7a1e21'];
+
+    const result = await service.listPublicProducts({ page: 1, limit: 20, ids });
+
+    expect(result.items[0].images.map((image) => image.id)).toEqual(['gold-1', 'shared']);
+    expect(result.items[0].variants[0].availableStock).toBe(3);
+    expect(prisma.product.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ids } }) }),
+    );
+    expect(prisma.product.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        include: expect.not.objectContaining({ videos: expect.anything() }),
+      }),
+    );
   });
 
   it('normalizes category names before saving them', async () => {

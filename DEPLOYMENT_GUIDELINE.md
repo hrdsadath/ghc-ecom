@@ -6,7 +6,7 @@ This guide deploys:
 - NestJS backend to Railway (recommended) or Render;
 - PostgreSQL, Auth, and Storage to Supabase;
 - Redis for BullMQ jobs and scheduled processing;
-- Razorpay and SMTP as external providers.
+- HDFC SmartGateway and SMTP as external providers.
 
 ## 1. Production topology
 
@@ -200,9 +200,13 @@ SUPABASE_URL=https://PROJECT_REF.supabase.co
 SUPABASE_ANON_KEY=YOUR_ANON_OR_PUBLISHABLE_KEY
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_OR_SECRET_KEY
 
-RAZORPAY_KEY_ID=rzp_test_REPLACE
-RAZORPAY_KEY_SECRET=REPLACE
-RAZORPAY_WEBHOOK_SECRET=REPLACE
+HDFC_ENABLED=true
+HDFC_BASE_URL=https://smartgateway.hdfcuat.bank.in
+HDFC_MERCHANT_ID=REPLACE
+HDFC_API_KEY=REPLACE
+HDFC_PAYMENT_PAGE_CLIENT_ID=hdfcmaster
+HDFC_WEBHOOK_USERNAME=REPLACE
+HDFC_WEBHOOK_PASSWORD=REPLACE
 
 EMAIL_FROM="Glockery Home Centre <orders@YOUR_VERIFIED_DOMAIN>"
 RESEND_API_KEY=re_REPLACE
@@ -303,7 +307,7 @@ only `/api/v1` in the value field. Do not paste the complete assignment into the
 value field.
 
 This is the only required frontend environment variable. Never put Supabase
-service-role keys, database URLs, Razorpay secrets, SMTP credentials, or
+service-role keys, database URLs, HDFC SmartGateway API key/webhook password, SMTP credentials, or
 `CSRF_SECRET` in Vercel.
 
 ### 6.3 Add SPA routing and security headers
@@ -329,7 +333,7 @@ Create `frontend/vercel.json` before deployment:
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' https://checkout.razorpay.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.razorpay.com https://*.razorpay.in; frame-src https://*.razorpay.com https://*.razorpay.in;"
+          "value": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self';"
         },
         {
           "key": "Referrer-Policy",
@@ -405,30 +409,23 @@ API_PUBLIC_URL=https://YOUR-FRONTEND.vercel.app
 
 Do not enable Vercel rewrite caching for `/api/*` or `/api/v1/auth/*`.
 
-## 8. Razorpay and email
+## 8. HDFC SmartGateway and email
 
-Start with Razorpay test keys. Configure the webhook:
+Start with the SmartGateway sandbox (`https://smartgateway.hdfcuat.bank.in`,
+`HDFC_PAYMENT_PAGE_CLIENT_ID=hdfcmaster`). In the dashboard (Payments → Settings →
+Webhook) configure:
 
 ```text
-https://api.example.com/api/v1/webhooks/razorpay
+https://api.example.com/api/v1/webhooks/hdfc
 ```
 
-Subscribe to:
+with the same Basic username/password as `HDFC_WEBHOOK_USERNAME` /
+`HDFC_WEBHOOK_PASSWORD`, and enable the order and refund events. The payment
+return URL defaults to `https://shop.example.com/checkout/result`.
 
-- `payment.captured`;
-- `payment.failed`;
-- `order.paid`;
-- `refund.created`;
-- `refund.processed`;
-- `refund.failed`.
-
-Run the staging verifier:
-
-```bash
-npm run test:staging:razorpay --workspace=backend
-```
-
-Test successful, cancelled, failed, duplicate, and delayed payments plus full and
+Test successful, failed, abandoned, pending-then-successful, duplicate and delayed
+webhook payments plus full and partial refunds before switching to the production
+base URL (`https://smartgateway.hdfc.bank.in`) and production API key.
 partial refunds before switching to live keys.
 
 Configure SPF, DKIM, and DMARC for the production email sender.
@@ -447,7 +444,7 @@ Configure SPF, DKIM, and DMARC for the production email sender.
 10. Add `VITE_API_URL`.
 11. Attach and verify `shop.example.com`.
 12. Update Supabase Site URL and redirect allowlist.
-13. Configure Razorpay webhook.
+13. Configure the HDFC SmartGateway webhook.
 14. Register and bootstrap the first administrator.
 15. Complete staging and production smoke tests.
 
@@ -469,7 +466,7 @@ Verify in the browser:
 - no access/refresh tokens in auth JSON responses;
 - public catalogue and product images;
 - guest and authenticated carts;
-- checkout and Razorpay test payment;
+- checkout and HDFC SmartGateway sandbox payment;
 - payment webhook processing;
 - order email and invoice;
 - admin authorization;

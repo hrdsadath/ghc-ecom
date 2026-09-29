@@ -16,8 +16,8 @@ Production-oriented ecommerce monorepo for Glockery's Next.js storefront and Nes
 
 ## Fast start
 
-Requirements: Node.js 24, npm 11, Docker, Supabase project, Redis, and Razorpay test
-account.
+Requirements: Node.js 24, npm 11, Docker, Supabase project, Redis, and an HDFC
+SmartGateway sandbox merchant account.
 
 ```bash
 npm ci

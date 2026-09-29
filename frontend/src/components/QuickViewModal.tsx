@@ -36,7 +36,7 @@ const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, onClose }) => 
 
     const variant = product.variants.find((item) => item.id === selectedVariantId) || product.variants[0];
     const outOfStock = !variant || variant.availableStock <= 0;
-    const image = primaryImageForVariant(product, variant)?.largeUrl;
+    const image = primaryImageForVariant(product, variant)?.mediumUrl;
     const isWishlisted = isInWishlist(product.id);
 
     const handleAddToCart = async () => {
@@ -77,7 +77,7 @@ const QuickViewModal: React.FC<QuickViewModalProps> = ({ product, onClose }) => 
 
                 <div className="relative flex aspect-[16/10] items-center justify-center border-b border-gold-500/20 bg-obsidian p-5 sm:aspect-square sm:p-6 md:aspect-auto md:border-b-0 md:border-r">
                     {image ? (
-                        <img src={image} alt={product.name} className="max-h-[380px] w-full object-contain" />
+                        <img src={image} alt={product.name} decoding="async" className="max-h-[380px] w-full object-contain" />
                     ) : (
                         <div className="text-gold-400 font-display text-4xl">GLOCKERY</div>
                     )}

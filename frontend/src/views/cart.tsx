@@ -4,7 +4,6 @@ import React from 'react';
 import { Link } from '../lib/router';
 import Header from '../components/Header';
 import { IconArrowRight, IconMinus, IconPackage, IconPlus, IconTrash } from '../components/Icons';
-import SEOHead from '../components/SEOHead';
 import StoreFooter from '../components/StoreFooter';
 import { useCart } from '../contexts/CartContext';
 import { fallbackImage, rupees } from '../lib/commerce';
@@ -15,7 +14,6 @@ const CartPage = () => {
 
     return (
         <div className="min-h-screen bg-obsidian text-cream font-body flex flex-col justify-between">
-            <SEOHead title="Your Shopping Bag | Glockery Home Centre" noIndex />
             <Header />
 
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-16">
@@ -49,9 +47,11 @@ const CartPage = () => {
                                 <article key={item.id} className="flex flex-col items-start justify-between gap-6 bg-carbon/20 px-5 py-6 sm:flex-row sm:items-center">
                                     <div className="flex items-center gap-5">
                                         <img
+                                            loading="lazy"
+                                            decoding="async"
                                             src={item.imageUrl || fallbackImage}
                                             alt={item.productName}
-                                            className="aspect-[4/5] w-20 object-cover bg-panel"
+                                            className="aspect-[4/5] w-20 shrink-0 object-contain bg-panel"
                                             onError={(e) => { e.currentTarget.src = fallbackImage; }}
                                         />
                                         <div>

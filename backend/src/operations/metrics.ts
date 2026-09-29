@@ -20,7 +20,7 @@ function gauge(name: string, help: string): Gauge {
 }
 
 export const operationsGauges = {
-  failedWebhooks: gauge('failed_webhooks', 'Failed Razorpay webhook events'),
+  failedWebhooks: gauge('failed_webhooks', 'Failed HDFC SmartGateway webhook events'),
   terminalJobFailures: gauge('terminal_job_failures', 'Terminal outbox job failures'),
   expiredPendingPayments: gauge('expired_pending_payments', 'Expired pending payment orders'),
   paymentMismatches: gauge('payment_mismatches', 'Local payment and order state mismatches'),

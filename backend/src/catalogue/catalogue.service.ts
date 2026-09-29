@@ -52,9 +52,41 @@ const productInclude = {
   videos: { orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }] },
 } satisfies Prisma.ProductInclude;
 
+// Listings (storefront grids, search, wishlist, admin tables) only render a card
+// image per variant, so they skip videos and the storage/source image columns.
+const productCardInclude = {
+  category: true,
+  variants: productInclude.variants,
+  images: {
+    orderBy: productInclude.images.orderBy,
+    select: {
+      id: true,
+      productId: true,
+      altText: true,
+      sortOrder: true,
+      thumbnailUrl: true,
+      mediumUrl: true,
+      variantLinks: { select: { variantId: true } },
+    },
+  },
+} satisfies Prisma.ProductInclude;
+
 type ProductWithInventory = Prisma.ProductGetPayload<{
   include: typeof productInclude;
 }>;
+
+type ProductCardWithInventory = Prisma.ProductGetPayload<{
+  include: typeof productCardInclude;
+}>;
+
+type WithAvailableStock<T extends { variants: { inventoryLevels: unknown }[] }> = Omit<
+  T,
+  'variants'
+> & {
+  variants: (Omit<T['variants'][number], 'inventoryLevels'> & { availableStock: number })[];
+};
+
+export type CatalogueProductCard = WithAvailableStock<ProductCardWithInventory>;
 
 type CatalogueVariant = Omit<ProductWithInventory['variants'][number], 'inventoryLevels'> & {
   availableStock: number;
@@ -65,7 +97,7 @@ export type CatalogueProduct = Omit<ProductWithInventory, 'variants'> & {
 };
 
 export interface PaginatedProducts {
-  items: CatalogueProduct[];
+  items: CatalogueProductCard[];
   total: number;
   page: number;
   limit: number;
@@ -88,7 +120,16 @@ interface StoredProductImage {
 }
 
 export const PUBLIC_CATALOGUE_CACHE_VERSION_KEY = 'catalogue:version';
-const PUBLIC_CATALOGUE_CACHE_TTL_SECONDS = 30;
+// Entries are fresh for 30s. After that the stale copy is served while one
+// background load refreshes it, so shoppers never wait on the database once warm.
+// Catalogue edits and admin stock adjustments bump the version key, which skips stale copies.
+const PUBLIC_CATALOGUE_CACHE_FRESH_MS = 30_000;
+const PUBLIC_CATALOGUE_CACHE_TTL_SECONDS = 15 * 60;
+
+interface PublicCacheEntry<T> {
+  value: T;
+  freshUntil: number;
+}
 const CATEGORY_AUDIT_FIELDS = [
   'name',
   'slug',
@@ -141,12 +182,14 @@ export class CatalogueService {
       query.limit,
       query.category ?? '',
       query.q?.trim().toLowerCase() ?? '',
+      [...new Set(query.ids ?? [])].sort().join(','),
     ].join(':');
     return this.cachedPublic(cacheKey, () => this.loadPublicProducts(query));
   }
 
   private async loadPublicProducts(query: ListProductsDto): Promise<PaginatedProducts> {
     const where: Prisma.ProductWhereInput = {
+      ...(query.ids?.length ? { id: { in: query.ids } } : {}),
       status: ProductStatus.PUBLISHED,
       publishedAt: { lte: new Date() },
       category: {
@@ -162,27 +205,47 @@ export class CatalogueService {
           }
         : {}),
     };
-    const skip = (query.page - 1) * query.limit;
-    const [items, total] = await Promise.all([
-      this.prisma.product.findMany({
-        relationLoadStrategy: 'join',
-        where,
-        include: {
-          ...productInclude,
-          variants: {
-            ...productInclude.variants,
-            where: { isActive: true },
-          },
+    // Stock is derived from inventory levels, so it cannot be an ORDER BY column. Rank the
+    // matching ids first (newest first, then in-stock products ahead of sold-out ones) so
+    // every page keeps that order, and load full cards only for the requested page.
+    const ranked = await this.prisma.product.findMany({
+      relationLoadStrategy: 'join',
+      where,
+      select: {
+        id: true,
+        variants: {
+          where: { isActive: true },
+          select: { inventoryLevels: productInclude.variants.include.inventoryLevels },
         },
-        orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
-        skip,
-        take: query.limit,
-      }),
-      this.prisma.product.count({ where }),
-    ]);
+      },
+      orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
+    });
+    const inStock = (product: (typeof ranked)[number]) =>
+      product.variants.some((variant) =>
+        variant.inventoryLevels.some((level) => level.onHand - level.reserved > 0),
+      );
+    const skip = (query.page - 1) * query.limit;
+    const pageIds = [...ranked.filter(inStock), ...ranked.filter((product) => !inStock(product))]
+      .slice(skip, skip + query.limit)
+      .map((product) => product.id);
+    const items = pageIds.length
+      ? await this.prisma.product.findMany({
+          relationLoadStrategy: 'join',
+          where: { id: { in: pageIds } },
+          include: {
+            ...productCardInclude,
+            variants: {
+              ...productCardInclude.variants,
+              where: { isActive: true },
+            },
+          },
+        })
+      : [];
+    const position = new Map(pageIds.map((id, index) => [id, index]));
+    items.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
     return {
-      items: items.map((product) => this.withAvailableStock(product)),
-      total,
+      items: items.map((product) => this.productCard(product)),
+      total: ranked.length,
       page: query.page,
       limit: query.limit,
     };
@@ -221,13 +284,13 @@ export class CatalogueService {
     });
   }
 
-  async listAdminProducts(): Promise<CatalogueProduct[]> {
+  async listAdminProducts(): Promise<CatalogueProductCard[]> {
     const products = await this.prisma.product.findMany({
       relationLoadStrategy: 'join',
-      include: productInclude,
+      include: productCardInclude,
       orderBy: { createdAt: 'desc' },
     });
-    return products.map((product) => this.withAvailableStock(product));
+    return products.map((product) => this.productCard(product));
   }
 
   async getAdminProduct(productId: string): Promise<CatalogueProduct> {
@@ -1142,7 +1205,32 @@ export class CatalogueService {
     }
   }
 
-  private withAvailableStock(product: ProductWithInventory): CatalogueProduct {
+  /**
+   * Keeps only the images a card can show: the first shared image (or the first
+   * image when none is shared) and the first image of each variant. Order is kept,
+   * so the frontend's primary-image choice is the same as with every image.
+   */
+  private productCard(product: ProductCardWithInventory): CatalogueProductCard {
+    const { images } = product;
+    const picked = new Set(
+      [
+        images.find((image) => image.variantLinks.length === 0) ?? images[0],
+        ...product.variants.map((variant) =>
+          images.find((image) => image.variantLinks.some((link) => link.variantId === variant.id)),
+        ),
+      ].filter((image) => image !== undefined),
+    );
+    return this.withAvailableStock({
+      ...product,
+      images: images.filter((image) => picked.has(image)),
+    });
+  }
+
+  private withAvailableStock(product: ProductWithInventory): CatalogueProduct;
+  private withAvailableStock(product: ProductCardWithInventory): CatalogueProductCard;
+  private withAvailableStock(
+    product: ProductWithInventory | ProductCardWithInventory,
+  ): CatalogueProduct | CatalogueProductCard {
     return {
       ...product,
       variants: product.variants.map(({ inventoryLevels, ...variant }) => ({
@@ -1180,31 +1268,47 @@ export class CatalogueService {
     if (!this.redis) return load();
 
     let key: string;
+    let cached: PublicCacheEntry<T> | null;
     try {
       const version = (await this.redis.get(PUBLIC_CATALOGUE_CACHE_VERSION_KEY)) ?? '0';
-      key = `catalogue:${version}:${suffix}`;
-      const cached = await this.redis.getJson<T>(key);
-      if (cached !== null) return cached;
+      key = `catalogue:v2:${version}:${suffix}`;
+      cached = await this.redis.getJson<PublicCacheEntry<T>>(key);
     } catch {
       return load();
     }
 
+    if (cached) {
+      if (cached.freshUntil <= Date.now()) {
+        // Serve the stale copy now; a failed refresh keeps it until the TTL ends.
+        this.refreshPublic(key, load).catch(() => undefined);
+      }
+      return cached.value;
+    }
+    return this.refreshPublic(key, load);
+  }
+
+  /** Loads once per key at a time, however many requests are waiting on it. */
+  private refreshPublic<T>(key: string, load: () => Promise<T>): Promise<T> {
     const existing = this.publicLoads.get(key) as Promise<T> | undefined;
     if (existing) return existing;
-    const pending = load().then(async (value) => {
-      try {
-        await this.redis?.setJson(key, value, PUBLIC_CATALOGUE_CACHE_TTL_SECONDS);
-      } catch {
-        // Redis is an optimization; public catalogue reads must still succeed without it.
-      }
-      return value;
-    });
+    const pending = load()
+      .then(async (value) => {
+        const entry: PublicCacheEntry<T> = {
+          value,
+          freshUntil: Date.now() + PUBLIC_CATALOGUE_CACHE_FRESH_MS,
+        };
+        try {
+          await this.redis?.setJson(key, entry, PUBLIC_CATALOGUE_CACHE_TTL_SECONDS);
+        } catch {
+          // Redis is an optimization; public catalogue reads must still succeed without it.
+        }
+        return value;
+      })
+      .finally(() => {
+        if (this.publicLoads.get(key) === pending) this.publicLoads.delete(key);
+      });
     this.publicLoads.set(key, pending);
-    try {
-      return await pending;
-    } finally {
-      if (this.publicLoads.get(key) === pending) this.publicLoads.delete(key);
-    }
+    return pending;
   }
 
   private async invalidatePublicCache(): Promise<void> {

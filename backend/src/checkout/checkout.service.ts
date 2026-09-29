@@ -41,15 +41,6 @@ export class CheckoutService {
       (sum, item) => sum + item.variant.pricePaise * item.quantity,
       0,
     );
-    const coupon = input.couponCode
-      ? await this.validateCoupon(input.couponCode, subtotalPaise, cart.userId)
-      : null;
-    const discountPaise = this.discount(coupon, subtotalPaise);
-    const taxablePaise = subtotalPaise - discountPaise;
-    // Published catalogue prices are the final customer prices. This store does not offer delivery.
-    const shippingPaise = 0;
-    const taxPaise = 0;
-    const totalPaise = taxablePaise + shippingPaise + taxPaise;
     const expiresAt = new Date(Date.now() + QUOTE_TTL_MS);
     const itemsSnapshot = this.itemsSnapshot(cart);
 
@@ -77,6 +68,15 @@ export class CheckoutService {
           ${cart.id}::uuid,
           ${expiresAt}::timestamptz
         )`;
+        const coupon = input.couponCode
+          ? await this.validateCoupon(input.couponCode, subtotalPaise, cart.userId, transaction)
+          : null;
+        const discountPaise = this.discount(coupon, subtotalPaise);
+        const taxablePaise = subtotalPaise - discountPaise;
+        // Published catalogue prices are final customer prices and delivery is free.
+        const shippingPaise = 0;
+        const taxPaise = 0;
+        const totalPaise = taxablePaise + shippingPaise + taxPaise;
         return transaction.checkoutQuote.create({
           data: {
             cartId: cart.id,
@@ -217,11 +217,19 @@ export class CheckoutService {
     code: string,
     subtotalPaise: number,
     userId: string | null,
+    client: Pick<
+      Prisma.TransactionClient,
+      '$executeRaw' | 'coupon' | 'couponRedemption' | 'checkoutQuote'
+    > = this.prisma,
   ): Promise<Coupon> {
     const now = new Date();
-    const coupon = await this.prisma.coupon.findFirst({
+    const normalizedCode = code.toUpperCase();
+    await client.$executeRaw`select pg_advisory_xact_lock(
+      hashtextextended(${'coupon:' + normalizedCode}::text, 0)
+    )`;
+    const coupon = await client.coupon.findFirst({
       where: {
-        code: code.toUpperCase(),
+        code: normalizedCode,
         isActive: true,
         startsAt: { lte: now },
         endsAt: { gt: now },
@@ -230,20 +238,39 @@ export class CheckoutService {
     if (!coupon || subtotalPaise < coupon.minimumSubtotalPaise) {
       throw new BadRequestException('Coupon is invalid or ineligible');
     }
-    const totalUses = await this.prisma.couponRedemption.count({
-      where: { couponId: coupon.id },
-    });
-    if (coupon.usageLimit !== null && totalUses >= coupon.usageLimit) {
+    const [totalRedemptions, activeReservations] = await Promise.all([
+      client.couponRedemption.count({
+        where: { couponId: coupon.id },
+      }),
+      client.checkoutQuote.count({
+        where: {
+          couponId: coupon.id,
+          status: QuoteStatus.ACTIVE,
+          expiresAt: { gt: now },
+        },
+      }),
+    ]);
+    if (coupon.usageLimit !== null && totalRedemptions + activeReservations >= coupon.usageLimit) {
       throw new BadRequestException('Coupon redemption limit reached');
     }
     if (coupon.perUserLimit !== null) {
       if (!userId) {
         throw new BadRequestException('This coupon requires an authenticated customer');
       }
-      const userUses = await this.prisma.couponRedemption.count({
-        where: { couponId: coupon.id, userId },
-      });
-      if (userUses >= coupon.perUserLimit) {
+      const [userRedemptions, activeUserReservations] = await Promise.all([
+        client.couponRedemption.count({
+          where: { couponId: coupon.id, userId },
+        }),
+        client.checkoutQuote.count({
+          where: {
+            couponId: coupon.id,
+            userId,
+            status: QuoteStatus.ACTIVE,
+            expiresAt: { gt: now },
+          },
+        }),
+      ]);
+      if (userRedemptions + activeUserReservations >= coupon.perUserLimit) {
         throw new BadRequestException('Customer coupon redemption limit reached');
       }
     }

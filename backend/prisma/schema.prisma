@@ -523,7 +523,7 @@ model Order {
   shippingPaise    Int             @map("shipping_paise")
   taxPaise         Int             @map("tax_paise")
   totalPaise       Int             @map("total_paise")
-  razorpayOrderId  String?         @unique @map("razorpay_order_id")
+  hdfcOrderId      String?         @unique @map("hdfc_order_id")
   paymentExpiresAt DateTime        @map("payment_expires_at") @db.Timestamptz(6)
   confirmedAt      DateTime?       @map("confirmed_at") @db.Timestamptz(6)
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -539,7 +539,6 @@ model Order {
   @@index([status, paymentExpiresAt])
   @@index([cartId, status, paymentExpiresAt])
   @@index([orderNumber(ops: raw("gin_trgm_ops"))], type: Gin, map: "orders_order_number_trgm_idx")
-  @@index([razorpayOrderId(ops: raw("gin_trgm_ops"))], type: Gin, map: "orders_razorpay_order_id_trgm_idx")
   @@map("orders")
 }
 
@@ -557,18 +556,19 @@ model Invoice {
 }
 
 model OutboxEvent {
-  id            String       @id @default(uuid()) @db.Uuid
-  aggregateType String       @map("aggregate_type")
-  aggregateId   String       @map("aggregate_id")
-  eventType     String       @map("event_type")
-  dedupeKey     String       @unique @map("dedupe_key")
-  payload       Json
-  status        OutboxStatus @default(PENDING)
-  attempts      Int          @default(0)
-  availableAt   DateTime     @default(now()) @map("available_at") @db.Timestamptz(6)
-  lastError     String?      @map("last_error")
-  processedAt   DateTime?    @map("processed_at") @db.Timestamptz(6)
-  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String       @id @default(uuid()) @db.Uuid
+  aggregateType       String       @map("aggregate_type")
+  aggregateId         String       @map("aggregate_id")
+  eventType           String       @map("event_type")
+  dedupeKey           String       @unique @map("dedupe_key")
+  payload             Json
+  status              OutboxStatus @default(PENDING)
+  attempts            Int          @default(0)
+  availableAt         DateTime     @default(now()) @map("available_at") @db.Timestamptz(6)
+  processingStartedAt DateTime?    @map("processing_started_at") @db.Timestamptz(6)
+  lastError           String?      @map("last_error")
+  processedAt         DateTime?    @map("processed_at") @db.Timestamptz(6)
+  createdAt           DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([status, availableAt])
   @@map("outbox_events")
@@ -598,7 +598,7 @@ model Notification {
 model Payment {
   id                String        @id @default(uuid()) @db.Uuid
   orderId           String        @map("order_id") @db.Uuid
-  razorpayPaymentId String        @unique @map("razorpay_payment_id")
+  hdfcTransactionId String?       @unique @map("hdfc_transaction_id")
   status            PaymentStatus
   amountPaise       Int           @map("amount_paise")
   currency          String        @default("INR")
@@ -686,36 +686,48 @@ model ReturnRequest {
 }
 
 model Refund {
-  id               String         @id @default(uuid()) @db.Uuid
-  paymentId        String         @map("payment_id") @db.Uuid
-  returnRequestId  String?        @map("return_request_id") @db.Uuid
-  idempotencyKey   String         @unique @map("idempotency_key")
-  razorpayRefundId String?        @unique @map("razorpay_refund_id")
-  amountPaise      Int            @map("amount_paise")
-  currency         String         @default("INR")
-  status           RefundStatus   @default(PENDING)
-  reason           String?
-  rawPayload       Json           @default("{}") @map("raw_payload")
-  processedAt      DateTime?      @map("processed_at") @db.Timestamptz(6)
-  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  payment          Payment        @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  returnRequest    ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
+  id              String         @id @default(uuid()) @db.Uuid
+  paymentId       String         @map("payment_id") @db.Uuid
+  returnRequestId String?        @map("return_request_id") @db.Uuid
+  idempotencyKey  String         @unique @map("idempotency_key")
+  hdfcRefundId    String?        @unique @map("hdfc_refund_id")
+  amountPaise     Int            @map("amount_paise")
+  currency        String         @default("INR")
+  status          RefundStatus   @default(PENDING)
+  reason          String?
+  rawPayload      Json           @default("{}") @map("raw_payload")
+  processedAt     DateTime?      @map("processed_at") @db.Timestamptz(6)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment         Payment        @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  returnRequest   ReturnRequest? @relation(fields: [returnRequestId], references: [id], onDelete: Restrict)
 
   @@index([paymentId, status])
   @@map("refunds")
 }
 
+/// Razorpay ids of orders/payments/refunds made before HDFC SmartGateway; history only.
+model LegacyRazorpayReference {
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  razorpayId String   @map("razorpay_id")
+  archivedAt DateTime @default(now()) @map("archived_at") @db.Timestamptz(6)
+
+  @@id([entityType, entityId])
+  @@map("legacy_razorpay_references")
+}
+
 model WebhookEvent {
-  id              String        @id @default(uuid()) @db.Uuid
-  providerEventId String        @unique @map("provider_event_id")
-  eventType       String        @map("event_type")
-  status          WebhookStatus @default(RECEIVED)
-  payload         Json
-  attempts        Int           @default(0)
-  lastError       String?       @map("last_error")
-  processedAt     DateTime?     @map("processed_at") @db.Timestamptz(6)
-  receivedAt      DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
+  id                  String        @id @default(uuid()) @db.Uuid
+  providerEventId     String        @unique @map("provider_event_id")
+  eventType           String        @map("event_type")
+  status              WebhookStatus @default(RECEIVED)
+  payload             Json
+  attempts            Int           @default(0)
+  processingStartedAt DateTime?     @map("processing_started_at") @db.Timestamptz(6)
+  lastError           String?       @map("last_error")
+  processedAt         DateTime?     @map("processed_at") @db.Timestamptz(6)
+  receivedAt          DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
 
   @@index([status, receivedAt])
   @@map("webhook_events")

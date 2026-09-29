@@ -13,7 +13,7 @@ import AdminLoginPage from './views/admin-login';
 import AuthPage from './views/auth';
 import CartPage from './views/cart';
 import ProductDetailPage from './views/product';
-import { serializeJsonLd } from './components/SEOHead';
+import { serializeJsonLd } from './lib/structured-data';
 import { saveSession } from './lib/api';
 import { catalogueCsvHeaders } from './lib/catalogue-csv';
 import { Product } from './types';
@@ -137,15 +137,9 @@ let mockDriveImageGate: Promise<void> | null = null;
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url.startsWith('/google-drive?id=')) {
+    if (/\/admin\/catalogue\/products\/[^/]+\/images\/google-drive$/.test(url)) {
         if (mockDriveImageGate) await mockDriveImageGate;
-        return new Response(new Uint8Array([137, 80, 78, 71]), {
-            status: 200,
-            headers: {
-                'content-type': 'image/png',
-                'content-disposition': 'attachment; filename="catalogue.png"',
-            },
-        });
+        return json({ id: 'imported-image-id', url: 'https://images.example/catalogue.png' });
     }
     if (url.endsWith('/auth/csrf')) return json({ csrfToken: 'test-csrf-token' });
     if (url.endsWith('/auth/session')) {
@@ -390,7 +384,9 @@ describe('black and gold commerce UI', () => {
         expect(galleryStrip).not.toBeNull();
         expect(galleryStrip?.className).toContain('overflow-x-auto');
         expect(galleryStrip?.className).toContain('no-scrollbar');
-        expect(galleryStrip?.querySelectorAll('button')).toHaveLength(6);
+        expect(galleryStrip?.querySelectorAll('button')).toHaveLength(
+            galleryProduct.images.length + galleryProduct.videos.length,
+        );
         expect(galleryStrip?.querySelectorAll('button')[0]).toHaveProperty('type', 'button');
     });
 
@@ -608,7 +604,7 @@ describe('black and gold commerce UI', () => {
         expect(JSON.parse(String(productRequest?.[1]?.body))).toMatchObject({ categoryId: 'new-category-id' });
     });
 
-    it('limits imported summaries and transfers Drive images through the same-origin download path', async () => {
+    it('limits imported summaries and imports Drive images through the protected backend endpoint', async () => {
         mockAuthenticated = true;
         mockRoles = ['ADMIN'];
         vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -630,9 +626,10 @@ describe('black and gold commerce UI', () => {
             String(request).endsWith('/admin/catalogue/products') && init?.method === 'POST');
         const productBody = JSON.parse(String(productRequest?.[1]?.body)) as { shortDescription: string };
         expect(productBody.shortDescription.length).toBeLessThanOrEqual(300);
-        expect(fetchMock.mock.calls.some(([request]) => String(request).startsWith('/google-drive?id='))).toBe(true);
         expect(fetchMock.mock.calls.some(([request, init]) =>
-            /\/admin\/catalogue\/products\/[^/]+\/images$/.test(String(request)) && init?.method === 'POST' && init.body instanceof FormData)).toBe(true);
+            /\/admin\/catalogue\/products\/[^/]+\/images\/google-drive$/.test(String(request)) &&
+            init?.method === 'POST' &&
+            String(init.body).includes(driveUrl))).toBe(true);
     });
 
     it('downloads a repeated option image once and reuses it across imported combinations', async () => {
@@ -655,9 +652,8 @@ describe('black and gold commerce UI', () => {
             await new Promise((resolve) => window.setTimeout(resolve, 450));
         });
 
-        expect(fetchMock.mock.calls.filter(([request]) => String(request).startsWith('/google-drive?id='))).toHaveLength(1);
         expect(fetchMock.mock.calls.filter(([request, init]) =>
-            /\/admin\/catalogue\/products\/[^/]+\/images$/.test(String(request)) && init?.method === 'POST')).toHaveLength(1);
+            /\/admin\/catalogue\/products\/[^/]+\/images\/google-drive$/.test(String(request)) && init?.method === 'POST')).toHaveLength(1);
     });
 
     it('shows catalogue import progress in a modal until image processing finishes', async () => {

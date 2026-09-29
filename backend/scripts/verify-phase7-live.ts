@@ -16,7 +16,7 @@ import { PrismaService } from '../src/database/prisma.service';
 import { FulfilmentService } from '../src/fulfilment/fulfilment.service';
 import { RefundsService } from '../src/fulfilment/refunds.service';
 import { ShippingProviderService } from '../src/fulfilment/shipping-provider.service';
-import { RazorpayService } from '../src/payments/razorpay.service';
+import { HdfcGatewayService, HdfcRefund } from '../src/payments/hdfc/hdfc-gateway.service';
 import { normalizeSupabaseUrl } from '../src/config/env.validation';
 
 function required(name: string): string {
@@ -85,6 +85,7 @@ async function run(): Promise<void> {
     const order = await prisma.order.create({
       data: {
         orderNumber: `P7-${suffix}`,
+        hdfcOrderId: `GHCP7${suffix.replace(/[^a-z0-9]/gi, '')}`.slice(0, 20),
         quoteId,
         cartId,
         userId,
@@ -167,35 +168,37 @@ async function run(): Promise<void> {
     const payment = await prisma.payment.create({
       data: {
         orderId: order.id,
-        razorpayPaymentId: `pay_phase7_${suffix}`,
+        hdfcTransactionId: `txn_phase7_${suffix}`,
         status: PaymentStatus.CAPTURED,
         amountPaise: 10_000,
       },
     });
     paymentId = payment.id;
     let providerCalls = 0;
-    const razorpay = {
-      createRefund: async (providerPaymentId: string, input: { amount: number }) => {
+    const providerRefund = (
+      uniqueRequestId: string,
+      amountPaise: number,
+      status: 'PENDING' | 'SUCCESS',
+    ): HdfcRefund => ({
+      uniqueRequestId,
+      status,
+      outcome: status === 'SUCCESS' ? 'processed' : 'pending',
+      amountPaise,
+      reference: `rfnd_phase7_${suffix}`,
+      raw: { unique_request_id: uniqueRequestId, status },
+    });
+    let lastRefundId = '';
+    const gateway = {
+      createRefund: async (_order: unknown, uniqueRequestId: string, amountPaise: number) => {
         providerCalls += 1;
-        return {
-          id: `rfnd_phase7_${suffix}`,
-          entity: 'refund' as const,
-          amount: input.amount,
-          currency: 'INR',
-          payment_id: providerPaymentId,
-          status: 'pending' as const,
-        };
+        lastRefundId = uniqueRequestId;
+        return { refunds: [providerRefund(uniqueRequestId, amountPaise, 'PENDING')] };
       },
-      fetchRefund: async () => ({
-        id: `rfnd_phase7_${suffix}`,
-        entity: 'refund' as const,
-        amount: 6_000,
-        currency: 'INR',
-        payment_id: payment.razorpayPaymentId,
-        status: 'processed' as const,
+      getOrderStatus: async () => ({
+        refunds: [providerRefund(lastRefundId, 6_000, 'SUCCESS')],
       }),
-    } as unknown as RazorpayService;
-    const refunds = new RefundsService(prisma as unknown as PrismaService, razorpay, {
+    } as unknown as HdfcGatewayService;
+    const refunds = new RefundsService(prisma as unknown as PrismaService, gateway, {
       record: async () => ({}),
     } as unknown as AuditService);
     const refundInput = {
