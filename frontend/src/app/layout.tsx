@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Suspense } from 'react';
+import { connection } from 'next/server';
 import '../index.css';
 import Providers from './providers';
 import JsonLd from '../components/JsonLd';
@@ -69,7 +70,11 @@ const RouteFallback = () => (
   </div>
 );
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // The CSP nonce from src/proxy.ts only reaches pages rendered per request, so no page may be
+  // prerendered: a static page would ship un-nonced inline scripts that the browser blocks.
+  await connection();
+
   return (
     <html lang="en-IN" data-scroll-behavior="smooth">
       <body>

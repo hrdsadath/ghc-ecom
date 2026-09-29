@@ -19,10 +19,13 @@ afterEach(() => {
   vi.resetModules();
 });
 
-const cspFor = async () => {
-  const { default: config } = await import('../next.config.mjs');
-  const [route] = await config.headers!();
-  return route.headers.find((header) => header.key === 'Content-Security-Policy')!.value;
+const cspFor = async (isDevelopment = false) => {
+  const { contentSecurityPolicy } = await import('./lib/security-policy.mjs');
+  return contentSecurityPolicy({
+    nonce: 'test-nonce',
+    isDevelopment,
+    imageOrigin: new URL('https://project.supabase.co'),
+  });
 };
 
 describe('payment content security policy', () => {
@@ -45,15 +48,17 @@ describe('deployment output', () => {
     expect(config.output).toBeUndefined();
   });
 
-  it('uses a strict script policy and does not expose an open image proxy', async () => {
+  it('uses a nonce-based script policy and does not expose an open image proxy', async () => {
     const { default: config } = await import('../next.config.mjs');
-    expect(config.headers).toBeDefined();
-    const headerGroups = await config.headers!();
-    const csp = headerGroups[0].headers.find(
-      (header: { key: string }) => header.key === 'Content-Security-Policy',
-    )?.value;
+    const csp = await cspFor();
+    const staticHeaders = (await config.headers!())[0].headers.map((header: { key: string }) => header.key);
 
-    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("script-src 'self' 'nonce-test-nonce' 'strict-dynamic';");
+    expect(csp).not.toMatch(/script-src[^;]*unsafe-(inline|eval)/);
+    expect(await cspFor(true)).toContain("'unsafe-eval'");
+    expect(csp).toContain("img-src 'self' data: blob: https://project.supabase.co;");
+    // A second, nonce-less static CSP header would be enforced too and block Next.js scripts.
+    expect(staticHeaders).not.toContain('Content-Security-Policy');
     expect(config.images?.remotePatterns).toEqual([]);
     expect(config.images?.maximumRedirects).toBe(0);
   });

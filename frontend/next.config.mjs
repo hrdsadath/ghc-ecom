@@ -1,43 +1,13 @@
 import { fileURLToPath } from 'node:url';
+import { resolveImageOrigin } from './src/lib/security-policy.mjs';
 
 const backendOrigin = (process.env.BACKEND_ORIGIN ||
   (process.env.NODE_ENV === 'production'
     ? 'https://ghc-ecom-production.up.railway.app'
     : 'http://127.0.0.1:3001')).replace(/\/+$/, '');
-const isDevelopment = process.env.NODE_ENV === 'development';
-const configuredImageOrigin = process.env.NEXT_PUBLIC_IMAGE_ORIGIN?.trim();
-const imageOrigin = configuredImageOrigin
-  ? new URL(configuredImageOrigin)
-  : isDevelopment
-    ? new URL('http://127.0.0.1:54321')
-    : null;
-if (imageOrigin && !['http:', 'https:'].includes(imageOrigin.protocol)) {
-  throw new Error('NEXT_PUBLIC_IMAGE_ORIGIN must use HTTP or HTTPS');
-}
-if (!isDevelopment && imageOrigin?.protocol === 'http:') {
-  throw new Error('NEXT_PUBLIC_IMAGE_ORIGIN must use HTTPS outside development');
-}
-const developmentScriptPolicy = isDevelopment ? " 'unsafe-inline' 'unsafe-eval'" : '';
-const imageSource = imageOrigin ? ` ${imageOrigin.origin}` : '';
+const imageOrigin = resolveImageOrigin(process.env);
 const isManagedPlatformBuild =
   process.env.VERCEL === '1' || Boolean(process.env.NEXT_ADAPTER_PATH);
-// HDFC SmartGateway runs on its own hosted page reached by top-level navigation,
-// so checkout needs no third-party script, frame, connect or form-action origin.
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  `script-src 'self'${developmentScriptPolicy}`,
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self' data:",
-  `img-src 'self' data: blob:${imageSource}`,
-  `media-src 'self'${imageSource}`,
-  "connect-src 'self'",
-  'frame-src https://www.instagram.com',
-].join('; ');
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   turbopack: {
@@ -92,7 +62,7 @@ const nextConfig = {
       {
         source: '/(.*)',
         headers: [
-          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
+          // Content-Security-Policy is set per request with a nonce in src/proxy.ts.
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
