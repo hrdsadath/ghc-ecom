@@ -6,8 +6,35 @@ const imageOrigin = resolveImageOrigin({
     NODE_ENV: process.env.NODE_ENV,
 });
 
+const PAYMENT_RESULT_PATH = '/checkout/result';
+const RETURN_PARAMS = ['order_id', 'status', 'status_id'] as const;
+
+/**
+ * SmartGateway can return the customer with a form POST instead of query parameters.
+ * A page only sees the query string, so re-issue it as a GET carrying the same fields
+ * (303 makes the browser switch to GET). The page still verifies status with the API.
+ */
+async function paymentReturnRedirect(request: NextRequest) {
+    const target = new URL(PAYMENT_RESULT_PATH, request.url);
+    let form: FormData | null = null;
+    try {
+        form = await request.formData();
+    } catch {
+        // Not a form body; fall through with whatever the query string carries.
+    }
+    for (const key of RETURN_PARAMS) {
+        const value = form?.get(key) ?? request.nextUrl.searchParams.get(key);
+        if (typeof value === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(value)) target.searchParams.set(key, value);
+    }
+    return NextResponse.redirect(target, 303);
+}
+
 // Next.js reads the nonce from the request's CSP header and stamps it on its own scripts.
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
+    if (request.method === 'POST' && request.nextUrl.pathname === PAYMENT_RESULT_PATH) {
+        return paymentReturnRedirect(request);
+    }
+
     const nonce = btoa(crypto.randomUUID());
     const policy = contentSecurityPolicy({
         nonce,

@@ -30,6 +30,7 @@ import { resolveApiBaseUrl } from './api-url';
 export const API_BASE_URL = resolveApiBaseUrl(process.env.NEXT_PUBLIC_API_URL);
 const CART_KEY = 'ghc_cart';
 const GUEST_ORDER_KEY = 'ghc_guest_orders';
+const PENDING_PAYMENT_KEY = 'ghc_pending_payment';
 const REQUEST_TIMEOUT_MS = 15_000;
 let currentSession: Session | null = null;
 let csrfToken: string | null = null;
@@ -88,6 +89,31 @@ const guestOrderTokens = (): Record<string, string> => {
 
 export const saveGuestOrderAccess = (orderId: string, guestToken: string) => {
     localStorage.setItem(GUEST_ORDER_KEY, JSON.stringify({ ...guestOrderTokens(), [orderId]: guestToken }));
+};
+
+/** The order sent to SmartGateway, so /checkout/result can still check it if the return carries no order id. */
+export const savePendingPayment = (orderId: string) => {
+    try {
+        sessionStorage.setItem(PENDING_PAYMENT_KEY, orderId);
+    } catch {
+        // Storage unavailable: the result page falls back to the gateway's order_id.
+    }
+};
+
+export const readPendingPayment = (): string | null => {
+    try {
+        return sessionStorage.getItem(PENDING_PAYMENT_KEY);
+    } catch {
+        return null;
+    }
+};
+
+export const clearPendingPayment = () => {
+    try {
+        sessionStorage.removeItem(PENDING_PAYMENT_KEY);
+    } catch {
+        // Nothing to clear.
+    }
 };
 
 type RequestOptions = {

@@ -6,7 +6,7 @@ import Header from '../components/Header';
 import StoreFooter from '../components/StoreFooter';
 import { IconAlert, IconRefresh } from '../components/Icons';
 import { useCart } from '../contexts/CartContext';
-import { api } from '../lib/api';
+import { api, clearPendingPayment, readPendingPayment } from '../lib/api';
 import { Order } from '../types';
 
 type Outcome = 'success' | 'failed' | 'pending';
@@ -24,12 +24,16 @@ const isGatewayOrderId = (value: string | null): value is string => Boolean(valu
 
 type StatusLookup = { orderId: string } | { hdfcOrderId: string };
 
-/** `?order=<uuid>` from our own links, or `?order_id=…` from the SmartGateway return URL. */
-const readLookup = (params: URLSearchParams): StatusLookup | null => {
+/**
+ * `?order=<uuid>` from our own links, `?order_id=…` from the SmartGateway return URL,
+ * or the order this tab sent to SmartGateway when the return carried no parameters.
+ */
+const readLookup = (params: URLSearchParams, pendingOrderId: string | null): StatusLookup | null => {
     const orderId = params.get('order');
     if (isUuid(orderId)) return { orderId };
     const hdfcOrderId = params.get('order_id');
     if (isGatewayOrderId(hdfcOrderId)) return { hdfcOrderId };
+    if (isUuid(pendingOrderId)) return { orderId: pendingOrderId };
     return null;
 };
 
@@ -44,10 +48,13 @@ export const PaymentResultPage = () => {
     const { search } = useLocation();
     const { resetCart } = useCart();
     const params = new URLSearchParams(search);
-    const lookup = readLookup(params);
+    // sessionStorage is client-only; read it after hydration so server and client render the same.
+    const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+    const [storageRead, setStorageRead] = useState(false);
+    const lookup = readLookup(params, pendingOrderId);
     const lookupKey = lookup ? JSON.stringify(lookup) : null;
     const hint = readOutcome(params.get('outcome'));
-    const [status, setStatus] = useState<'checking' | 'pending' | 'failed'>(lookup ? 'checking' : 'failed');
+    const [status, setStatus] = useState<'checking' | 'pending' | 'failed'>('checking');
     const [error, setError] = useState('');
     const polls = useRef(0);
     const isMounted = useRef(false);
@@ -60,7 +67,17 @@ export const PaymentResultPage = () => {
     }, []);
 
     useEffect(() => {
-        if (!lookup) return;
+        setPendingOrderId(readPendingPayment());
+        setStorageRead(true);
+    }, []);
+
+    useEffect(() => {
+        if (!storageRead) return;
+        if (!lookup) {
+            // Without an order to check we cannot say the payment failed; point to order tracking instead.
+            setStatus(hint === 'failed' ? 'failed' : 'pending');
+            return;
+        }
         let timer: ReturnType<typeof setTimeout> | undefined;
 
         const check = async () => {
@@ -80,6 +97,7 @@ export const PaymentResultPage = () => {
                     setStatus('failed');
                     return;
                 }
+                clearPendingPayment();
                 resetCart();
                 history.replace(`/order-confirmation/${order.id}`);
             } catch (caught) {
@@ -94,7 +112,7 @@ export const PaymentResultPage = () => {
             if (timer) clearTimeout(timer);
         };
         // resetCart/history are stable; re-running on them would restart polling.
-    }, [lookupKey]);
+    }, [lookupKey, storageRead]);
 
     const retry = () => {
         polls.current = 0;
@@ -108,6 +126,7 @@ export const PaymentResultPage = () => {
                 } else if (order.status === 'PAYMENT_FAILED' || order.status === 'CANCELLED') {
                     setStatus('failed');
                 } else {
+                    clearPendingPayment();
                     resetCart();
                     history.replace(`/order-confirmation/${order.id}`);
                 }
@@ -119,7 +138,7 @@ export const PaymentResultPage = () => {
             });
     };
 
-    const failed = status === 'failed' || (!lookup && hint === 'failed');
+    const failed = status === 'failed';
 
     return (
         <div className="min-h-screen bg-obsidian text-cream flex flex-col justify-between font-body">

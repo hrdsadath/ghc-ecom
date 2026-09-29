@@ -6,7 +6,7 @@ import { IconArrowRight, IconRefresh, IconShieldCheck } from '../components/Icon
 import { useAuth } from '../contexts/AuthContext';
 import { useCart } from '../contexts/CartContext';
 import { useDialog } from '../hooks/useDialog';
-import { api, getCartIdentity, saveGuestOrderAccess } from '../lib/api';
+import { api, getCartIdentity, saveGuestOrderAccess, savePendingPayment } from '../lib/api';
 import { fallbackImage, rupees } from '../lib/commerce';
 import { redirectToGateway, resolveCheckoutEmail } from '../lib/payment-gateway';
 import { Address, CheckoutQuote, ShippingAddressInput } from '../types';
@@ -99,6 +99,7 @@ const CheckoutPage = () => {
             if (!isMounted.current) return;
             const guestToken = !signedIn ? getCartIdentity()?.guestToken : undefined;
             if (guestToken) saveGuestOrderAccess(intent.orderId, guestToken);
+            savePendingPayment(intent.orderId);
             leavingForGateway.current = true;
             redirectToGateway(intent);
         } catch (caught) {

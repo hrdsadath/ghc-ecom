@@ -7,6 +7,8 @@ import AdminShell from '../components/AdminShell';
 import {
     IconAlert,
     IconCheckCircle,
+    IconChevronLeft,
+    IconChevronRight,
     IconClock,
     IconDownload,
     IconEdit,
@@ -943,6 +945,9 @@ const assignmentMode = (variantIds: string[], drafts: VariantDraft[]): string =>
     return 'exact';
 };
 
+const PRODUCT_PAGE_SIZES = [20, 50, 100] as const;
+type ProductPageSize = (typeof PRODUCT_PAGE_SIZES)[number];
+
 const CatalogueAdmin = () => {
     const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
     const [products, setProducts] = useState<Product[]>([]);
@@ -950,6 +955,8 @@ const CatalogueAdmin = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
+    const [productPage, setProductPage] = useState(1);
+    const [productPageSize, setProductPageSize] = useState<ProductPageSize>(20);
 
     const [openProductModal, setOpenProductModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -1522,6 +1529,13 @@ const CatalogueAdmin = () => {
         });
     }, [products, searchQuery, categoryFilter, statusFilter]);
 
+    // New filters start from the first page; deletes can shrink the list below the current page.
+    useEffect(() => setProductPage(1), [searchQuery, categoryFilter, statusFilter, productPageSize]);
+    const productPageCount = Math.max(1, Math.ceil(filteredProducts.length / productPageSize));
+    const currentProductPage = Math.min(productPage, productPageCount);
+    const productPageStart = (currentProductPage - 1) * productPageSize;
+    const pagedProducts = filteredProducts.slice(productPageStart, productPageStart + productPageSize);
+
     return (
         <AdminShell
             title="Catalogue"
@@ -1665,7 +1679,7 @@ const CatalogueAdmin = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gold-500/10">
-                                {filteredProducts.map((product) => (
+                                {pagedProducts.map((product) => (
                                     <tr key={product.id} className="transition-colors hover:bg-gold-400/[.03]">
                                         <td data-label="Product" className="p-4">
                                             <div className="flex items-center gap-3">
@@ -1723,6 +1737,54 @@ const CatalogueAdmin = () => {
                         </table>
                         {!filteredProducts.length && <p className="p-10 text-center text-sm text-cream/40">No matching products found in catalogue.</p>}
                     </div>
+
+                    {filteredProducts.length > 0 && (
+                        <div className="mt-4 flex flex-col gap-3 text-xs text-cream/60 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-center gap-3">
+                                <span>
+                                    Showing {productPageStart + 1}–{productPageStart + pagedProducts.length} of {filteredProducts.length}
+                                </span>
+                                <label className="flex items-center gap-2">
+                                    <span className="sr-only sm:not-sr-only">Per page</span>
+                                    <select
+                                        value={productPageSize}
+                                        onChange={(e) => setProductPageSize(Number(e.target.value) as ProductPageSize)}
+                                        className="h-9 rounded-sm border border-gold-500/25 bg-obsidian px-3 text-xs text-cream outline-none"
+                                        aria-label="Products per page"
+                                    >
+                                        {PRODUCT_PAGE_SIZES.map((size) => (
+                                            <option key={size} value={size}>
+                                                {size}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            </div>
+                            {productPageCount > 1 && (
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setProductPage(currentProductPage - 1)}
+                                        disabled={currentProductPage <= 1}
+                                        className="flex size-9 items-center justify-center rounded-sm border border-gold-500/25 bg-carbon text-cream hover:border-gold-400 disabled:pointer-events-none disabled:opacity-30"
+                                        aria-label="Previous page"
+                                    >
+                                        <IconChevronLeft size={16} />
+                                    </button>
+                                    <span className="px-2">
+                                        Page <strong className="text-gold-300">{currentProductPage}</strong> of {productPageCount}
+                                    </span>
+                                    <button
+                                        onClick={() => setProductPage(currentProductPage + 1)}
+                                        disabled={currentProductPage >= productPageCount}
+                                        className="flex size-9 items-center justify-center rounded-sm border border-gold-500/25 bg-carbon text-cream hover:border-gold-400 disabled:pointer-events-none disabled:opacity-30"
+                                        aria-label="Next page"
+                                    >
+                                        <IconChevronRight size={16} />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             ) : (
                 /* Category Management View */
