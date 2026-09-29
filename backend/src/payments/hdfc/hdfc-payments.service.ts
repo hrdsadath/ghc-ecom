@@ -142,7 +142,7 @@ export class HdfcPaymentsService {
     if (order.status !== OrderStatus.PAYMENT_PENDING || !this.gateway.isEnabled()) {
       return order;
     }
-    await this.settle(order);
+    await this.settle(order, { customerReturned: true });
     return (await this.prisma.order.findUnique({ where: { id: order.id } })) ?? order;
   }
 
@@ -177,8 +177,14 @@ export class HdfcPaymentsService {
     return result;
   }
 
-  /** Reads the authoritative status from SmartGateway and applies it idempotently. */
-  private async settle(order: Order): Promise<'confirmed' | 'failed' | 'pending'> {
+  /**
+   * Reads the authoritative status from SmartGateway and applies it idempotently.
+   * `customerReturned`: the customer is back on the storefront from the payment page.
+   */
+  private async settle(
+    order: Order,
+    { customerReturned = false } = {},
+  ): Promise<'confirmed' | 'failed' | 'pending'> {
     const status = await this.gateway.getOrderStatus(order);
     if (status.orderId && status.orderId !== order.hdfcOrderId) {
       throw new ConflictException('HDFC status belongs to a different order');
@@ -198,7 +204,11 @@ export class HdfcPaymentsService {
     }
     // Non-terminal statuses (NEW, PENDING_VBV, AUTHORIZING, …) stay pending until
     // the checkout window closes; a charge after that is kept as a late capture.
-    if (status.outcome === 'failed' || order.paymentExpiresAt <= new Date()) {
+    // NEW means no payment was ever attempted. Once the customer has left the payment
+    // page (cancel or back), nothing can move it on, so fail it now instead of making
+    // them wait for the checkout window to close.
+    const abandoned = customerReturned && status.status === 'NEW';
+    if (status.outcome === 'failed' || abandoned || order.paymentExpiresAt <= new Date()) {
       await this.applyFailed(order, status);
       return 'failed';
     }

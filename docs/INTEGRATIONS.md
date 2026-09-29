@@ -65,8 +65,8 @@ replaced Razorpay and the earlier FSS scaffold. Production refuses to start unle
    Order Status check. Webhooks are authenticated with the dashboard Basic
    credentials; a failed status check answers non-200 so SmartGateway retries.
    Webhooks are stored in `webhook_events` (deduplicated by SmartGateway event id)
-   and processed by the payment queue. Pending orders are reconciled every five
-   minutes (`POST /admin/payments/reconcile` runs it on demand).
+   and processed by the payment queue. Pending orders are reconciled every
+   minute (`POST /admin/payments/reconcile` runs it on demand).
 7. Status mapping: `CHARGED` confirms; `AUTHENTICATION_FAILED`,
    `AUTHORIZATION_FAILED`, `JUSPAY_DECLINED`, `AUTO_REFUNDED` and `VOIDED` fail the
    order; everything else (`NEW`, `PENDING_VBV`, `AUTHORIZING`, …) stays pending

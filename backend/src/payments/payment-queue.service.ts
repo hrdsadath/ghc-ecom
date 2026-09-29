@@ -33,9 +33,11 @@ export class PaymentQueueService implements OnModuleInit, OnModuleDestroy {
       connection: this.connection,
       concurrency: 5,
     });
+    // Fallback for lost webhooks and customers who never return from the payment
+    // page. It only inspects PAYMENT_PENDING orders, so a short interval is cheap.
     await this.queue.upsertJobScheduler(
       'payment-reconciliation',
-      { every: 5 * 60 * 1000 },
+      { every: 60 * 1000 },
       { name: 'reconcile', data: { kind: 'reconcile' } },
     );
   }

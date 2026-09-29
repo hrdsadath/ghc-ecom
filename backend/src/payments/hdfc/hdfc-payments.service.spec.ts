@@ -265,6 +265,19 @@ describe('HdfcPaymentsService', () => {
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
+    it('fails an order the customer left without attempting a payment (NEW)', async () => {
+      gateway.getOrderStatus.mockResolvedValue({
+        ...charged,
+        status: 'NEW',
+        outcome: 'pending',
+        transactionId: null,
+      });
+
+      await service.resolveStatus({ orderId: pendingOrder.id });
+
+      expect(transaction.$executeRaw).toHaveBeenCalledTimes(1);
+    });
+
     it('does not expose legacy Razorpay orders', async () => {
       prisma.order.findUnique.mockResolvedValue({ ...pendingOrder, hdfcOrderId: null });
 

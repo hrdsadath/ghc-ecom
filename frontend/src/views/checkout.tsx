@@ -12,7 +12,7 @@ import { redirectToGateway, resolveCheckoutEmail } from '../lib/payment-gateway'
 import { Address, CheckoutQuote, ShippingAddressInput } from '../types';
 
 const CheckoutPage = () => {
-    const { cart } = useCart();
+    const { cart, loading: cartLoading } = useCart();
     const { signedIn, session } = useAuth();
     const [addresses, setAddresses] = useState<Address[]>([]);
     const [selectedAddress, setSelectedAddress] = useState('');
@@ -49,6 +49,8 @@ const CheckoutPage = () => {
         };
     }, [signedIn]);
 
+    // Wait for the bag to load: opening or refreshing /checkout must not bounce to /cart.
+    if (!cart && cartLoading) return null;
     if (!cart?.items.length) return <Redirect to="/cart" />;
 
     const submit = async (event: FormEvent<HTMLFormElement>) => {
