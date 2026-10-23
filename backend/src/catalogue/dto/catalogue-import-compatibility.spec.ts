@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { CreateProductDto } from './create-product.dto';
 import { CreateVariantDto } from './create-variant.dto';
+import { UpdateVariantDto } from './update-variant.dto';
 
 const validationPipe = new ValidationPipe({
   whitelist: true,
@@ -52,5 +53,14 @@ describe('catalogue import compatibility', () => {
     );
 
     expect(result.alias).toBe('Display set — staff favourite 😊');
+  });
+
+  it('accepts null to clear a variant colour and swatch', async () => {
+    const result = await validationPipe.transform(
+      { color: null, colorHex: null },
+      { type: 'body', metatype: UpdateVariantDto },
+    );
+
+    expect(result).toMatchObject({ color: null, colorHex: null });
   });
 });

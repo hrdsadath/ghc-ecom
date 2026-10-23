@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { Cormorant_Garamond, Plus_Jakarta_Sans } from 'next/font/google';
 import { Suspense } from 'react';
 import { connection } from 'next/server';
 import '../index.css';
@@ -6,6 +7,18 @@ import Providers from './providers';
 import JsonLd from '../components/JsonLd';
 import { SITE_URL, STORE } from '../lib/site';
 import { jsonLdGraph, storeSchema, websiteSchema } from '../lib/structured-data';
+
+// index.css names these families; next/font self-hosts them so they load from our own origin.
+const displayFont = Cormorant_Garamond({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-cormorant',
+});
+const bodyFont = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-jakarta',
+});
 
 const defaultTitle = 'Glockery Home Centre Vengara | Crockery & Kitchenware';
 const defaultDescription = 'Shop premium crockery, dinner sets, tea sets, serving dishes, canisters and kitchenware from Glockery Home Centre in Vengara, Malappuram.';
@@ -76,7 +89,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   await connection();
 
   return (
-    <html lang="en-IN" data-scroll-behavior="smooth">
+    <html lang="en-IN" data-scroll-behavior="smooth" className={`${displayFont.variable} ${bodyFont.variable}`}>
       <body>
         <JsonLd data={jsonLdGraph(storeSchema(), websiteSchema())} />
         <Suspense fallback={<RouteFallback />}>

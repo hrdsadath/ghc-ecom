@@ -30,7 +30,7 @@ const StoreFooter = () => (
                     <p className="mb-3 font-semibold text-cream">Help</p>
                     <ul className="space-y-2 text-cream/65">
                         <li><Link className="hover:text-cream" to="/order-lookup">Find an order</Link></li>
-                        <li><Link className="hover:text-cream" to="/shipping-returns">Orders &amp; returns</Link></li>
+                        <li><Link className="hover:text-cream" to="/shipping-returns">Shipping policy</Link></li>
                         <li><Link className="hover:text-cream" to="/contact">Contact</Link></li>
                         <li><a className="hover:text-cream" href="https://www.instagram.com/glockery_home_centre/" target="_blank" rel="noreferrer">Instagram</a></li>
                     </ul>

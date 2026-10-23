@@ -13,6 +13,15 @@ const EXTENSIONS: Record<string, string> = {
   'image/gif': 'gif',
 };
 
+/**
+ * Drive imports keep the Drive file id at the start of the stored source filename
+ * (`google-drive-<id>--<name>`, or `google-drive-<id>.<ext>` without a name), so a
+ * re-import of the same link can reuse the image instead of storing a duplicate.
+ */
+export function googleDriveSourcePrefixes(fileId: string): string[] {
+  return [`google-drive-${fileId}--`, `google-drive-${fileId}.`];
+}
+
 export function googleDriveFileId(value: string): string {
   let url: URL;
   try {
@@ -131,7 +140,9 @@ export class GoogleDriveImageService {
         suppliedName = undefined;
       }
     }
-    const safeName = suppliedName ? basename(suppliedName).slice(0, 255) : '';
-    return safeName || `google-drive-${fileId}.${EXTENSIONS[mimetype]}`;
+    const safeName = suppliedName ? basename(suppliedName) : '';
+    return safeName
+      ? `google-drive-${fileId}--${safeName}`.slice(0, 255)
+      : `google-drive-${fileId}.${EXTENSIONS[mimetype]}`;
   }
 }

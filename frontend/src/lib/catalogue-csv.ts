@@ -18,10 +18,19 @@ export const catalogueCsvHeaders = [
     'is_active',
     'option_google_drive_image_links',
     'shared_google_drive_image_links',
+    // Last, so files from before this column existed still line up. Exports fill it so a
+    // renamed product still matches on re-import; leave it blank for new products.
+    'product_slug',
 ] as const;
 
 export type CatalogueCsvHeader = (typeof catalogueCsvHeaders)[number];
-export type CatalogueCsvRow = Record<CatalogueCsvHeader, string> & { product_slug: string; sourceRow: number };
+/**
+ * `product_slug` is the file's slug when given, otherwise one made from the product name;
+ * `explicit_slug` says which, because only a slug from the file identifies a renamed product.
+ */
+export type CatalogueCsvRow = Record<CatalogueCsvHeader, string> & { explicit_slug: boolean; sourceRow: number };
+
+const productSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const requiredHeaders = [
     'product_name',
@@ -56,6 +65,7 @@ export const catalogueCsvTemplate = (): string => csv([
         'TRUE',
         '',
         '',
+        '',
     ],
     [
         'Noir Gold Tea Set',
@@ -74,6 +84,7 @@ export const catalogueCsvTemplate = (): string => csv([
         'TRUE',
         '',
         '',
+        '',
     ],
     [
         'Handcrafted Serving Bowl',
@@ -90,6 +101,7 @@ export const catalogueCsvTemplate = (): string => csv([
         '899',
         '',
         'TRUE',
+        '',
         '',
         '',
     ],
@@ -126,6 +138,7 @@ export const catalogueCsvExport = (products: Product[]): string => {
                 variant.isActive ? 'TRUE' : 'FALSE',
                 '',
                 '',
+                product.slug,
             ]);
         }
     }
@@ -186,7 +199,7 @@ export const parseCatalogueCsv = (text: string): CatalogueCsvRow[] => {
     if (missing.length > 0) throw new Error(`CSV is missing required columns: ${missing.join(', ')}.`);
     const legacyBarcodeColumn = headers.indexOf('barcode');
 
-    return rows.slice(1).map((values, index) => {
+    const parsed = rows.slice(1).map((values, index) => {
         const row = Object.fromEntries(
             catalogueCsvHeaders.map((header) => {
                 const currentColumn = headers.indexOf(header);
@@ -194,7 +207,22 @@ export const parseCatalogueCsv = (text: string): CatalogueCsvRow[] => {
                 return [header, column >= 0 ? importedCell(values[column] ?? '') : ''];
             }),
         ) as Record<CatalogueCsvHeader, string>;
-        return { ...row, product_slug: slugify(row.product_name), sourceRow: index + 2 };
+        const fileSlug = row.product_slug.toLowerCase();
+        return {
+            ...row,
+            product_slug: fileSlug || slugify(row.product_name),
+            explicit_slug: Boolean(fileSlug),
+            sourceRow: index + 2,
+        };
+    });
+    // A row added under an exported product (same name, slug left blank) joins that product.
+    const slugByName = new Map<string, string>();
+    for (const row of parsed) {
+        if (row.explicit_slug && !slugByName.has(row.product_name)) slugByName.set(row.product_name, row.product_slug);
+    }
+    return parsed.map((row) => {
+        const slug = row.explicit_slug ? undefined : slugByName.get(row.product_name);
+        return slug ? { ...row, product_slug: slug, explicit_slug: true } : row;
     });
 };
 
@@ -226,6 +254,12 @@ export const validateCatalogueCsvRows = (rows: CatalogueCsvRow[]): string[] => {
     for (const row of rows) {
         const prefix = `Row ${row.sourceRow}`;
         if (!row.product_name) errors.push(`${prefix}: product_name is required.`);
+        if (row.product_name.length > 180) errors.push(`${prefix}: product_name must be 180 characters or fewer.`);
+        if (row.explicit_slug && !productSlugPattern.test(row.product_slug)) {
+            errors.push(`${prefix}: product_slug may only contain lowercase letters, numbers and single dashes.`);
+        }
+        if (row.material.length > 120) errors.push(`${prefix}: material must be 120 characters or fewer.`);
+        if (row.color.length > 80) errors.push(`${prefix}: color must be 80 characters or fewer.`);
         if (!row.category_name) errors.push(`${prefix}: category_name is required.`);
         if (!['DRAFT', 'PUBLISHED', 'ARCHIVED'].includes(row.status.toUpperCase())) errors.push(`${prefix}: status must be DRAFT, PUBLISHED, or ARCHIVED.`);
         const sku = row.sku.toUpperCase();

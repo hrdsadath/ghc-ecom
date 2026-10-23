@@ -31,6 +31,8 @@ interface BrowserAuthResponse {
   user: BrowserUser | null;
   csrfToken?: string;
   roles: AppRole[];
+  /** Set when the browser held a session that can no longer be refreshed. */
+  expired?: boolean;
 }
 
 @Controller('auth')
@@ -61,10 +63,16 @@ export class AuthController {
     if (accessToken) {
       try {
         const user = await this.authService.verifyAccessToken(accessToken);
+        const access = await this.authService.access(user.id);
+        if (access.suspended) {
+          // A suspended account's access token may still verify; end the browser session now.
+          this.cookies.clear(response);
+          return { authenticated: false, user: null, roles: [], expired: true };
+        }
         return {
           authenticated: true,
           user: this.publicUser({ user, session: null }),
-          roles: await this.authService.roles(user.id),
+          roles: access.roles,
         };
       } catch (error) {
         if (!(error instanceof UnauthorizedException)) throw error;
@@ -85,9 +93,10 @@ export class AuthController {
       }
       return this.completeAuthentication(result, request, response);
     } catch (error) {
+      // Only a rejected refresh token ends the session; outages surface as 503 and keep cookies.
       if (!(error instanceof UnauthorizedException)) throw error;
       this.cookies.clear(response);
-      return { authenticated: false, user: null, roles: [] };
+      return { authenticated: false, user: null, roles: [], expired: true };
     }
   }
 
@@ -112,7 +121,14 @@ export class AuthController {
   ): Promise<BrowserAuthResponse> {
     const result = await this.authService.login(input.email, input.password);
     if (!result.session) throw new UnauthorizedException('Invalid email or password');
-    return this.completeAuthentication(result, request, response);
+    const authenticated = await this.completeAuthentication(result, request, response);
+    if (authenticated.user) {
+      await this.authService.recordSignIn(authenticated.user, authenticated.roles, {
+        ipAddress: request.ip,
+        userAgent: request.header('user-agent'),
+      });
+    }
+    return authenticated;
   }
 
   @Post('refresh')

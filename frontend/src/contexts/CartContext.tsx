@@ -1,5 +1,6 @@
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, ApiError, getCartIdentity, getSession, saveCartIdentity } from '../lib/api';
+import { isStaffSession } from './AuthContext';
 import { variantOptionLabel } from '../lib/product-options';
 import { Cart, ProductVariant } from '../types';
 
@@ -91,7 +92,12 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
             setLoading(false);
             // Create an empty guest cart after the first paint so the first
             // Add to cart action does not need two sequential API requests.
-            const timer = window.setTimeout(() => void refreshCart(), 500);
+            // Staff and the admin workspace never shop, so they get no cart.
+            const timer = window.setTimeout(() => {
+                const path = window.location.pathname;
+                if (path === '/admin' || path.startsWith('/admin/') || isStaffSession(getSession())) return;
+                void refreshCart();
+            }, 500);
             return () => window.clearTimeout(timer);
         }
     }, [refreshCart]);

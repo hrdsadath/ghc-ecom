@@ -84,10 +84,7 @@ interface CartRemovalResult {
   itemRemoved: boolean;
 }
 
-interface CartViewRow {
-  cartId: string;
-  status: CartStatus;
-  expiresAt: Date;
+interface CartItemRow {
   itemId: string | null;
   variantId: string | null;
   sku: string | null;
@@ -99,6 +96,82 @@ interface CartViewRow {
   quantity: number | null;
   unitPricePaise: number | null;
 }
+
+interface CartViewRow extends CartItemRow {
+  cartId: string;
+  status: CartStatus;
+  expiresAt: Date;
+}
+
+/** The cart row returned with a mutation, plus the cart's items after that mutation. */
+interface CartAfterMutation {
+  status: CartStatus | null;
+  expiresAt: Date | null;
+  items: CartItemRow[] | null;
+}
+
+/** Cart columns needed to check ownership without loading the cart's items. */
+export const cartOwnershipSelect = {
+  userId: true,
+  guestTokenHash: true,
+  status: true,
+  expiresAt: true,
+} satisfies Prisma.CartSelect;
+
+export type CartOwnership = Prisma.CartGetPayload<{ select: typeof cartOwnershipSelect }>;
+
+/** Orders reach their cart through the checkout quote; load this as `quote: { select }`. */
+export const orderQuoteCartSelect = {
+  cartId: true,
+  cart: { select: cartOwnershipSelect },
+} satisfies Prisma.CheckoutQuoteSelect;
+
+/** The order's cart owner columns, or null (deny) if the quote points at a different cart. */
+export const orderCart = (
+  order: { cartId: string },
+  quote: Prisma.CheckoutQuoteGetPayload<{ select: typeof orderQuoteCartSelect }>,
+): CartOwnership | null => (quote.cartId === order.cartId ? quote.cart : null);
+
+// Shared by the cart read and the add/remove statements, which return the updated bag in the
+// same round trip. Both expect cart item rows aliased as `item`.
+const cartItemViewColumns = Prisma.sql`
+        item.id as "itemId",
+        variant.id as "variantId",
+        variant.sku,
+        product.name as "productName",
+        variant.attributes ->> 'color' as color,
+        variant.attributes ->> 'size' as size,
+        case
+          when jsonb_typeof(variant.attributes -> 'packQuantity') = 'number'
+          then (variant.attributes ->> 'packQuantity')::integer
+          else null
+        end as "packQuantity",
+        coalesce(variant_image.thumbnail_url, product_image.thumbnail_url) as "imageUrl",
+        item.quantity,
+        variant.price_paise as "unitPricePaise"`;
+
+const cartItemViewJoins = Prisma.sql`
+      left join public.product_variants as variant on variant.id = item.variant_id
+      left join public.products as product on product.id = variant.product_id
+      left join lateral (
+        select image.thumbnail_url
+        from public.product_image_variants as association
+        join public.product_images as image on image.id = association.image_id
+        where association.variant_id = variant.id
+        order by image.sort_order, image.created_at
+        limit 1
+      ) as variant_image on true
+      left join lateral (
+        select image.thumbnail_url
+        from public.product_images as image
+        where image.product_id = product.id
+          and not exists (
+            select 1 from public.product_image_variants as association
+            where association.image_id = image.id
+          )
+        order by image.sort_order, image.created_at
+        limit 1
+      ) as product_image on true`;
 
 @Injectable()
 export class CartService {
@@ -162,7 +235,7 @@ export class CartService {
     guestToken?: string,
   ): Promise<CartView> {
     const owner = await this.resolveOwner(authorization, guestToken);
-    const [result] = await this.prisma.$queryRaw<CartMutationResult[]>`
+    const [result] = await this.prisma.$queryRaw<(CartMutationResult & CartAfterMutation)[]>`
       with locked as materialized (
         select pg_advisory_xact_lock(hashtextextended(${cartId}::text, 0))
       ),
@@ -238,14 +311,41 @@ export class CartService {
         on conflict (cart_id, variant_id) do update
           set quantity = excluded.quantity,
               updated_at = now()
-        returning id
+        returning id, variant_id, quantity, created_at
+      ),
+      -- Parts of one WITH statement cannot see each other's writes, so build the updated
+      -- bag from the untouched items plus the row the upsert returned.
+      next_items as (
+        select item.id, item.variant_id, item.quantity, item.created_at
+        from public.cart_items as item
+        join owned_cart on owned_cart.id = item.cart_id
+        where item.variant_id <> ${input.variantId}::uuid
+        union all
+        select id, variant_id, quantity, created_at from changed_item
+      ),
+      view_items as (
+        select ${cartItemViewColumns}, item.created_at
+        from next_items as item
+        ${cartItemViewJoins}
       )
       select
         exists(select 1 from owned_cart) as "cartFound",
         exists(select 1 from valid_variant) as "variantFound",
         exists(select 1 from pending_payment) as "paymentPending",
         (select available_stock from variant_state limit 1) as "availableStock",
-        exists(select 1 from changed_item) as "itemChanged"
+        exists(select 1 from changed_item) as "itemChanged",
+        cart.status,
+        cart."expiresAt",
+        (
+          select json_agg(view_items order by view_items.created_at)
+          from view_items
+        ) as items
+      from (select 1) as result
+      left join (
+        select upper(cart.status::text) as status, cart.expires_at as "expiresAt"
+        from public.carts as cart
+        join owned_cart on owned_cart.id = cart.id
+      ) as cart on true
     `;
 
     if (!result?.cartFound) throw new UnauthorizedException('Cart access denied');
@@ -264,7 +364,7 @@ export class CartService {
       );
     }
 
-    return this.getCartView(cartId, owner);
+    return this.mutatedCartView(cartId, result);
   }
 
   async removeItem(
@@ -274,7 +374,7 @@ export class CartService {
     guestToken?: string,
   ): Promise<CartView> {
     const owner = await this.resolveOwner(authorization, guestToken);
-    const [result] = await this.prisma.$queryRaw<CartRemovalResult[]>`
+    const [result] = await this.prisma.$queryRaw<(CartRemovalResult & CartAfterMutation)[]>`
       with locked as materialized (
         select pg_advisory_xact_lock(hashtextextended(${cartId}::text, 0))
       ),
@@ -320,11 +420,31 @@ export class CartService {
         where item.cart_id = owned_cart.id
           and item.variant_id = ${variantId}::uuid
         returning item.id
+      ),
+      -- The delete is not visible to this read, so leave the removed variant out by hand.
+      view_items as (
+        select ${cartItemViewColumns}, item.created_at
+        from public.cart_items as item
+        join owned_cart on owned_cart.id = item.cart_id
+        ${cartItemViewJoins}
+        where item.variant_id <> ${variantId}::uuid
       )
       select
         exists(select 1 from owned_cart) as "cartFound",
         exists(select 1 from pending_payment) as "paymentPending",
-        exists(select 1 from removed_item) as "itemRemoved"
+        exists(select 1 from removed_item) as "itemRemoved",
+        cart.status,
+        cart."expiresAt",
+        (
+          select json_agg(view_items order by view_items.created_at)
+          from view_items
+        ) as items
+      from (select 1) as result
+      left join (
+        select upper(cart.status::text) as status, cart.expires_at as "expiresAt"
+        from public.carts as cart
+        join owned_cart on owned_cart.id = cart.id
+      ) as cart on true
     `;
 
     if (!result?.cartFound) throw new UnauthorizedException('Cart access denied');
@@ -334,7 +454,7 @@ export class CartService {
       );
     }
     if (!result.itemRemoved) throw new NotFoundException('Cart item not found');
-    return this.getCartView(cartId, owner);
+    return this.mutatedCartView(cartId, result);
   }
 
   async requireAccessibleCart(
@@ -372,6 +492,27 @@ export class CartService {
       throw new UnauthorizedException('Cart access denied');
     }
     return cart;
+  }
+
+  /**
+   * The ownership rule of requireOwnedCart, applied to cart columns the caller loaded with its
+   * own query (see cartOwnershipSelect), which saves a database round trip.
+   */
+  async assertCartOwner(
+    cart: CartOwnership | null | undefined,
+    authorization?: string,
+    guestToken?: string,
+    requireActive = false,
+  ): Promise<void> {
+    const owner = await this.resolveOwner(authorization, guestToken);
+    const owned = owner.userId
+      ? cart?.userId === owner.userId
+      : Boolean(cart) && cart?.guestTokenHash === owner.guestTokenHash;
+    const active =
+      !requireActive || (cart?.status === CartStatus.ACTIVE && cart.expiresAt > new Date());
+    if (!owned || !active) {
+      throw new UnauthorizedException('Cart access denied');
+    }
   }
 
   view(cart: CartWithItems): CartView {
@@ -420,43 +561,10 @@ export class CartService {
         cart.id as "cartId",
         upper(cart.status::text) as status,
         cart.expires_at as "expiresAt",
-        item.id as "itemId",
-        variant.id as "variantId",
-        variant.sku,
-        product.name as "productName",
-        variant.attributes ->> 'color' as color,
-        variant.attributes ->> 'size' as size,
-        case
-          when jsonb_typeof(variant.attributes -> 'packQuantity') = 'number'
-          then (variant.attributes ->> 'packQuantity')::integer
-          else null
-        end as "packQuantity",
-        coalesce(variant_image.thumbnail_url, product_image.thumbnail_url) as "imageUrl",
-        item.quantity,
-        variant.price_paise as "unitPricePaise"
+        ${cartItemViewColumns}
       from public.carts as cart
       left join public.cart_items as item on item.cart_id = cart.id
-      left join public.product_variants as variant on variant.id = item.variant_id
-      left join public.products as product on product.id = variant.product_id
-      left join lateral (
-        select image.thumbnail_url
-        from public.product_image_variants as association
-        join public.product_images as image on image.id = association.image_id
-        where association.variant_id = variant.id
-        order by image.sort_order, image.created_at
-        limit 1
-      ) as variant_image on true
-      left join lateral (
-        select image.thumbnail_url
-        from public.product_images as image
-        where image.product_id = product.id
-          and not exists (
-            select 1 from public.product_image_variants as association
-            where association.image_id = image.id
-          )
-        order by image.sort_order, image.created_at
-        limit 1
-      ) as product_image on true
+      ${cartItemViewJoins}
       where cart.id = ${cartId}::uuid
         and cart.status = 'active'
         and cart.expires_at > now()
@@ -468,7 +576,20 @@ export class CartService {
     `;
     const cart = rows[0];
     if (!cart) throw new UnauthorizedException('Cart access denied');
+    return this.cartViewFromRows(cart.cartId, cart.status, cart.expiresAt, rows);
+  }
 
+  private mutatedCartView(cartId: string, result: CartAfterMutation): CartView {
+    if (!result.status || !result.expiresAt) throw new UnauthorizedException('Cart access denied');
+    return this.cartViewFromRows(cartId, result.status, result.expiresAt, result.items ?? []);
+  }
+
+  private cartViewFromRows(
+    cartId: string,
+    status: CartStatus,
+    expiresAt: Date,
+    rows: CartItemRow[],
+  ): CartView {
     const items = rows.flatMap((row) => {
       if (
         !row.itemId ||
@@ -501,9 +622,9 @@ export class CartService {
       ];
     });
     return {
-      id: cart.cartId,
-      status: cart.status,
-      expiresAt: cart.expiresAt,
+      id: cartId,
+      status,
+      expiresAt,
       items,
       subtotalPaise: items.reduce((sum, item) => sum + item.lineTotalPaise, 0),
     };
@@ -516,7 +637,8 @@ export class CartService {
     return { userId: null, guestTokenHash: this.hashToken(guestToken) };
   }
 
-  private async optionalUserId(authorization?: string): Promise<string | undefined> {
+  /** The signed-in customer's id (verified locally from the JWT), or undefined for a guest. */
+  async optionalUserId(authorization?: string): Promise<string | undefined> {
     if (!authorization) {
       return undefined;
     }

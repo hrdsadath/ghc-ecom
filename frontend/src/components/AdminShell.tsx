@@ -3,6 +3,7 @@ import { Link, NavLink } from '../lib/router';
 import { useAuth } from '../contexts/AuthContext';
 import { useDialog } from '../hooks/useDialog';
 import { api } from '../lib/api';
+import { ADMIN_SECTIONS, AdminSection, HealthTone, operationsHealth } from '../lib/admin-routes';
 import { AppRole } from '../types';
 import {
     IconArrowRight,
@@ -42,6 +43,11 @@ const roleLabels: Record<AppRole, string> = {
     CUSTOMER: 'Customer',
 };
 
+const sectionRoles = (section: AdminSection): AppRole[] =>
+    [...(ADMIN_SECTIONS.find((entry) => entry.section === section)?.roles ?? ['ADMIN'])];
+
+type Connection = { tone: HealthTone | 'checking'; label: string };
+
 const AdminShell: React.FC<AdminShellProps> = ({ title, description, action, children }) => {
     const { session, signOut } = useAuth();
     const user = session?.user;
@@ -49,37 +55,50 @@ const AdminShell: React.FC<AdminShellProps> = ({ title, description, action, chi
     const hasRole = (...allowed: AppRole[]) => allowed.some((role) => roles.includes(role));
     const [mobileOpen, setMobileOpen] = useState(false);
     const [lowStockCount, setLowStockCount] = useState<number | null>(null);
-    const [connection, setConnection] = useState<'checking' | 'connected' | 'unavailable'>('checking');
+    const isAdmin = hasRole('ADMIN');
+    // System health is an admin-only signal; other roles see no status rather than an unchecked claim.
+    const [connection, setConnection] = useState<Connection | null>(isAdmin ? { tone: 'checking', label: 'Checking systems' } : null);
     const mobileNavRef = useDialog<HTMLDivElement>(mobileOpen, () => setMobileOpen(false));
 
     useEffect(() => {
         document.title = `${title} | Glockery Admin`;
-        if (!hasRole('ADMIN')) {
-            setConnection('connected');
+    }, [title]);
+
+    useEffect(() => {
+        if (!isAdmin) {
+            setConnection(null);
             return;
         }
+        let active = true;
+        // api.operations() is shared and cached for 30 s, so moving between sections does not re-query.
         api.operations()
             .then((snapshot) => {
-                setConnection('connected');
-                if (typeof snapshot?.lowStockSkus === 'number') setLowStockCount(snapshot.lowStockSkus);
+                if (!active) return;
+                setConnection(operationsHealth(snapshot));
+                if (typeof snapshot?.lowStockSkus === 'number' && snapshot.lowStockSkus >= 0) setLowStockCount(snapshot.lowStockSkus);
             })
-            .catch(() => setConnection('unavailable'));
-    }, [title, roles.join('|')]);
+            .catch(() => {
+                if (active) setConnection({ tone: 'critical', label: 'Health check unavailable' });
+            });
+        return () => {
+            active = false;
+        };
+    }, [isAdmin]);
 
     const navGroups = useMemo(() => {
         const workspace: NavigationItem[] = [
-            { href: '/admin', label: 'Overview', icon: <IconGrid size={18} />, exact: true, roles: ['ADMIN'] },
-            { href: '/admin/orders', label: 'Orders', icon: <IconShoppingBag size={18} />, roles: ['ADMIN', 'SUPPORT_AGENT', 'WAREHOUSE_MANAGER'] },
+            { href: '/admin', label: 'Overview', icon: <IconGrid size={18} />, exact: true, roles: sectionRoles('overview') },
+            { href: '/admin/orders', label: 'Orders', icon: <IconShoppingBag size={18} />, roles: sectionRoles('orders') },
         ];
         const commerce: NavigationItem[] = [
-            { href: '/admin/catalogue', label: 'Catalogue', icon: <IconPackage size={18} />, roles: ['ADMIN', 'CATALOGUE_MANAGER'] },
-            { href: '/admin/inventory', label: 'Inventory', icon: <IconRefresh size={18} />, badge: lowStockCount, roles: ['ADMIN', 'WAREHOUSE_MANAGER'] },
-            { href: '/admin/promotions', label: 'Promotions', icon: <IconTag size={18} />, roles: ['ADMIN', 'CATALOGUE_MANAGER'] },
+            { href: '/admin/catalogue', label: 'Catalogue', icon: <IconPackage size={18} />, roles: sectionRoles('catalogue') },
+            { href: '/admin/inventory', label: 'Inventory', icon: <IconRefresh size={18} />, badge: lowStockCount, roles: sectionRoles('inventory') },
+            { href: '/admin/promotions', label: 'Promotions', icon: <IconTag size={18} />, roles: sectionRoles('promotions') },
         ];
         const control: NavigationItem[] = [
-            { href: '/admin/users', label: 'Team & roles', icon: <IconUser size={18} />, roles: ['ADMIN'] },
-            { href: '/admin/audit-logs', label: 'Activity log', icon: <IconShield size={18} />, roles: ['ADMIN'] },
-            { href: '/admin/operations', label: 'System health', icon: <IconGrid size={18} />, roles: ['ADMIN'] },
+            { href: '/admin/users', label: 'Team & roles', icon: <IconUser size={18} />, roles: sectionRoles('users') },
+            { href: '/admin/audit-logs', label: 'Activity log', icon: <IconShield size={18} />, roles: sectionRoles('audit-logs') },
+            { href: '/admin/operations', label: 'System health', icon: <IconGrid size={18} />, roles: sectionRoles('operations') },
         ];
         const permitted = (items: NavigationItem[]) => items.filter((item) => hasRole(...item.roles));
         return [
@@ -92,7 +111,15 @@ const AdminShell: React.FC<AdminShellProps> = ({ title, description, action, chi
     const primaryRole = roles.find((role) => role !== 'CUSTOMER');
     const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Team member';
     const initials = userName.slice(0, 2).toUpperCase();
-    const connectionLabel = connection === 'checking' ? 'Connecting' : connection === 'connected' ? 'All systems online' : 'Service unavailable';
+    const connectionDot = !connection
+        ? ''
+        : connection.tone === 'ok'
+            ? 'bg-emerald-500'
+            : connection.tone === 'checking'
+                ? 'animate-pulse bg-amber-400'
+                : connection.tone === 'warning'
+                    ? 'bg-amber-500'
+                    : 'bg-red-500';
 
     const sidebar = (
         <aside className="admin-nav flex h-full flex-col px-4 pb-4 pt-5 text-white">
@@ -169,10 +196,12 @@ const AdminShell: React.FC<AdminShellProps> = ({ title, description, action, chi
                         <button onClick={() => setMobileOpen(true)} className="grid size-11 shrink-0 place-items-center rounded-xl text-[#343934] hover:bg-[#e9e6de] lg:hidden" aria-label="Open navigation">
                             <IconMenu size={21} />
                         </button>
-                        <div className="hidden items-center gap-2 sm:flex">
-                            <span className={`size-2 rounded-full ${connection === 'connected' ? 'bg-emerald-500' : connection === 'checking' ? 'animate-pulse bg-amber-400' : 'bg-red-500'}`} aria-hidden="true" />
-                            <span className="text-xs font-medium text-[#696e67]">{connectionLabel}</span>
-                        </div>
+                        {connection && (
+                            <Link to="/admin/operations" className="hidden min-h-11 items-center gap-2 rounded-lg px-1 hover:text-[#222622] sm:flex" title="Open system health">
+                                <span className={`size-2 rounded-full ${connectionDot}`} aria-hidden="true" />
+                                <span className="text-xs font-medium text-[#696e67]" role="status">{connection.label}</span>
+                            </Link>
+                        )}
                         <span className="truncate text-sm font-semibold text-[#343934] sm:hidden">{title}</span>
                     </div>
                     <Link to="/" className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-xs font-semibold text-[#636860] hover:bg-[#e9e6de] hover:text-[#222622]">

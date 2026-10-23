@@ -36,16 +36,16 @@ export class CreateProductDto {
   @Transform(({ value }) => importSafeProductSummary(value))
   @IsString()
   @MaxLength(300)
-  shortDescription?: string;
+  shortDescription?: string | null;
 
   @IsOptional()
   @IsString()
-  description?: string;
+  description?: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(120)
-  material?: string;
+  material?: string | null;
 
   @IsOptional()
   @IsEnum(ProductStatus)
@@ -58,10 +58,10 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   @MaxLength(70)
-  seoTitle?: string;
+  seoTitle?: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(170)
-  seoDescription?: string;
+  seoDescription?: string | null;
 }

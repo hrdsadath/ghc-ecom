@@ -16,7 +16,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { SupabaseAuthGuard } from '../auth/guards/supabase-auth.guard';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
-import { PromotionsService } from './promotions.service';
+import { CouponWithStats, PromotionsService } from './promotions.service';
 
 @Controller('admin/promotions')
 @UseGuards(SupabaseAuthGuard, RolesGuard)
@@ -25,7 +25,7 @@ export class PromotionsController {
   constructor(private readonly promotions: PromotionsService) {}
 
   @Get('coupons')
-  list(): Promise<Coupon[]> {
+  list(): Promise<CouponWithStats[]> {
     return this.promotions.list();
   }
 

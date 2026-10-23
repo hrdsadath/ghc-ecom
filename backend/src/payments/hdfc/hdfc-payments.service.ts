@@ -6,8 +6,13 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { Order, OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
-import { CartService } from '../../cart/cart.service';
+import { CheckoutQuote, Order, OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import {
+  CartService,
+  cartOwnershipSelect,
+  orderCart,
+  orderQuoteCartSelect,
+} from '../../cart/cart.service';
 import { PrismaService } from '../../database/prisma.service';
 import { orderCreateData, requireActiveQuote, toInputJson } from '../order-factory';
 import { CreateHdfcIntentDto } from './dto/create-hdfc-intent.dto';
@@ -51,35 +56,21 @@ export class HdfcPaymentsService {
     guestToken?: string,
   ): Promise<HdfcPaymentIntent> {
     this.requireEnabled();
-    const quote = await this.prisma.checkoutQuote.findUnique({ where: { id: input.quoteId } });
-    if (!quote) {
+    const found = await this.prisma.checkoutQuote.findUnique({
+      where: { id: input.quoteId },
+      // The cart owner and any order already made for this quote come back in the same query.
+      include: { cart: { select: cartOwnershipSelect }, order: true },
+    });
+    if (!found) {
       throw new NotFoundException('Checkout quote not found');
     }
-    await this.carts.requireAccessibleCart(quote.cartId, authorization, guestToken);
+    const { cart, order: existing, ...quote } = found;
+    await this.carts.assertCartOwner(cart, authorization, guestToken, true);
     requireActiveQuote(quote);
 
-    const order = await this.prisma.$transaction(
-      async (transaction) => {
-        await transaction.$executeRaw`select pg_advisory_xact_lock(
-          hashtextextended(${quote.id}::text, 0)
-        )`;
-        const existing = await transaction.order.findUnique({ where: { quoteId: quote.id } });
-        if (existing?.hdfcOrderId) {
-          return existing;
-        }
-        if (existing) {
-          // A pre-SmartGateway (Razorpay) order; it can no longer be paid.
-          throw new ConflictException('Checkout quote belongs to a legacy order');
-        }
-        return transaction.order.create({
-          data: {
-            ...orderCreateData(quote),
-            hdfcOrderId: HdfcPaymentsService.newGatewayOrderId(),
-          },
-        });
-      },
-      { timeout: 20_000 },
-    );
+    const order = existing
+      ? HdfcPaymentsService.payableOrder(existing)
+      : await this.createGatewayOrder(quote);
     if (order.status !== OrderStatus.PAYMENT_PENDING) {
       throw new ConflictException('Order is no longer awaiting payment');
     }
@@ -95,6 +86,36 @@ export class HdfcPaymentsService {
       currency: order.currency,
       paymentUrl: session.paymentUrl,
     };
+  }
+
+  /**
+   * orders.quote_id is unique, so two concurrent requests for one quote cannot both insert;
+   * the one that loses reads back the order the other created.
+   */
+  private async createGatewayOrder(quote: CheckoutQuote): Promise<Order> {
+    try {
+      return await this.prisma.order.create({
+        data: {
+          ...orderCreateData(quote),
+          hdfcOrderId: HdfcPaymentsService.newGatewayOrderId(),
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+        throw error;
+      }
+      const existing = await this.prisma.order.findUnique({ where: { quoteId: quote.id } });
+      if (!existing) throw error;
+      return HdfcPaymentsService.payableOrder(existing);
+    }
+  }
+
+  private static payableOrder(order: Order): Order {
+    if (!order.hdfcOrderId) {
+      // A pre-SmartGateway (Razorpay) order; it can no longer be paid.
+      throw new ConflictException('Checkout quote belongs to a legacy order');
+    }
+    return order;
   }
 
   /**
@@ -130,15 +151,20 @@ export class HdfcPaymentsService {
     authorization?: string,
     guestToken?: string,
   ): Promise<Order> {
-    const order = lookup.orderId
-      ? await this.prisma.order.findUnique({ where: { id: lookup.orderId } })
+    const include = { quote: { select: orderQuoteCartSelect } };
+    const found = lookup.orderId
+      ? await this.prisma.order.findUnique({ where: { id: lookup.orderId }, include })
       : lookup.hdfcOrderId
-        ? await this.prisma.order.findUnique({ where: { hdfcOrderId: lookup.hdfcOrderId } })
+        ? await this.prisma.order.findUnique({
+            where: { hdfcOrderId: lookup.hdfcOrderId },
+            include,
+          })
         : null;
-    if (!order?.hdfcOrderId) {
+    if (!found?.hdfcOrderId) {
       throw new NotFoundException('Order not found');
     }
-    await this.carts.requireOwnedCart(order.cartId, authorization, guestToken);
+    const { quote, ...order } = found;
+    await this.carts.assertCartOwner(orderCart(order, quote), authorization, guestToken);
     if (order.status !== OrderStatus.PAYMENT_PENDING || !this.gateway.isEnabled()) {
       return order;
     }

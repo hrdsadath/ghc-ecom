@@ -21,7 +21,7 @@ import { useWishlist } from '../contexts/WishlistContext';
 import { useDialog } from '../hooks/useDialog';
 import { api } from '../lib/api';
 import { fallbackImage, rupees, shortDate, titleCase } from '../lib/commerce';
-import { openTrustedUrl } from '../lib/navigation';
+import { openTrustedUrlFrom } from '../lib/navigation';
 import { Address, Order, Product, Profile } from '../types';
 
 const panel = 'border border-gold-500/20 bg-carbon p-6 rounded-sm shadow-md';
@@ -41,15 +41,14 @@ const OrdersView = () => {
 
     const handleInvoiceDownload = async (orderId: string) => {
         try {
-            const res = await api.invoice(orderId);
-            if (res?.url && !openTrustedUrl(res.url)) throw new Error('Invoice URL was rejected');
+            await openTrustedUrlFrom(() => api.invoice(orderId).then((res) => res?.url));
         } catch {
             alert('Tax invoice is being generated. Please check back shortly.');
         }
     };
 
     return (
-        <AccountShell title="Order History" intro="Every order, payment status, tax invoice, and return detail stored securely in your account.">
+        <AccountShell title="Order History" intro="Every order, payment status, invoice, and return detail stored securely in your account.">
             {error && <p className="border border-red-500/30 p-4 text-xs text-red-200 rounded-sm mb-4">{error}</p>}
             {loading ? (
                 <div className="space-y-4">
@@ -98,7 +97,7 @@ const OrdersView = () => {
                                 <button
                                     onClick={() => handleInvoiceDownload(order.id)}
                                     className="p-2.5 text-gold-300 border border-gold-500/25 rounded-sm hover:border-gold-400 hover:bg-gold-400 hover:text-obsidian transition bg-obsidian"
-                                    title="Download Tax Invoice"
+                                    title="Download Invoice"
                                     aria-label="Download Invoice"
                                 >
                                     <IconDownload size={18} />

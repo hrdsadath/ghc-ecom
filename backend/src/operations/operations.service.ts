@@ -15,6 +15,9 @@ export interface OperationsSnapshot {
   checkedAt: string;
 }
 
+/** The admin shell, overview and health pages all read the snapshot; one query serves them for this long. */
+export const SNAPSHOT_MAX_AGE_MS = 30_000;
+
 interface OperationsCountRow {
   failedWebhooks: bigint;
   terminalJobFailures: bigint;
@@ -32,6 +35,8 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
   private readonly timeoutMs: number;
   private monitor?: NodeJS.Timeout;
   private lastObservedServerErrors = 0;
+  private cached?: { snapshot: OperationsSnapshot; takenAt: number };
+  private inFlight?: Promise<OperationsSnapshot>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -52,7 +57,25 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
     if (this.monitor) clearInterval(this.monitor);
   }
 
-  async snapshot(): Promise<OperationsSnapshot> {
+  /**
+   * Returns a snapshot no older than maxAgeMs, sharing one database query between concurrent
+   * callers. The 60 s monitor always takes a fresh one, which also refreshes the cache.
+   */
+  async snapshot(maxAgeMs = SNAPSHOT_MAX_AGE_MS): Promise<OperationsSnapshot> {
+    if (this.cached && Date.now() - this.cached.takenAt < maxAgeMs) return this.cached.snapshot;
+    if (this.inFlight) return this.inFlight;
+    const task = this.takeSnapshot();
+    this.inFlight = task;
+    try {
+      const snapshot = await task;
+      this.cached = { snapshot, takenAt: Date.now() };
+      return snapshot;
+    } finally {
+      if (this.inFlight === task) this.inFlight = undefined;
+    }
+  }
+
+  private async takeSnapshot(): Promise<OperationsSnapshot> {
     let counts: OperationsCountRow | undefined;
     try {
       [counts] = await this.prisma.$queryRaw<OperationsCountRow[]>`
@@ -85,8 +108,13 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
           (select count(*) from public.refunds where status = 'failed')::bigint
             as "failedRefunds",
           (
-            select count(*) from public.inventory_levels
-            where on_hand - reserved <= low_stock_threshold
+            select count(*)
+            from public.inventory_levels as level
+            join public.warehouses as warehouse on warehouse.id = level.warehouse_id
+            join public.product_variants as variant on variant.id = level.variant_id
+            where warehouse.is_active
+              and variant.is_active
+              and level.on_hand - level.reserved <= level.low_stock_threshold
           )::bigint as "lowStockSkus"
       `;
     } catch {
@@ -115,7 +143,7 @@ export class OperationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async checkAndAlert(): Promise<void> {
-    const snapshot = await this.snapshot();
+    const snapshot = await this.snapshot(0);
     const unhealthy =
       !snapshot.databaseHealthy ||
       [

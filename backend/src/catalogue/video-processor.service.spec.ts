@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { VideoProcessorService } from './video-processor.service';
+import { VideoProcessorService, ffmpegArguments } from './video-processor.service';
 
 function file(buffer: Buffer, mimetype: string): Express.Multer.File {
   return {
@@ -21,6 +21,15 @@ describe('VideoProcessorService', () => {
     await expect(
       new VideoProcessorService().process(file(Buffer.from('nope'), 'application/pdf')),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('scales large videos down to 1280 px on the longer side without upscaling', () => {
+    const args = ffmpegArguments('in', 'out.mp4');
+    const filter = args[args.indexOf('-vf') + 1];
+    expect(filter).toBe(
+      "scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+    );
+    expect(args.at(-1)).toBe('out.mp4');
   });
 
   it('rejects empty video uploads', async () => {

@@ -13,7 +13,44 @@ const ACCEPTED_MIME_TYPES = new Set([
   'video/ogg',
 ]);
 const MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
-const TRANSCODE_TIMEOUT_MS = 25_000;
+// A 25 MB phone clip can take well over 25 s to re-encode on a small instance; the admin
+// client waits up to 180 s for the whole upload, conversion and storage round trip.
+const TRANSCODE_TIMEOUT_MS = 90_000;
+// Product videos play in a page-width player, so anything larger than 1280 px on its
+// longer side is scaled down (never up) to keep conversion fast and files small.
+const MAX_VIDEO_DIMENSION = 1280;
+
+export function ffmpegArguments(inputPath: string, outputPath: string): string[] {
+  return [
+    '-y',
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-i',
+    inputPath,
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a?',
+    '-vf',
+    `scale=w='min(${MAX_VIDEO_DIMENSION},iw)':h='min(${MAX_VIDEO_DIMENSION},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2`,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-crf',
+    '23',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-b:a',
+    '128k',
+    '-movflags',
+    '+faststart',
+    outputPath,
+  ];
+}
 
 export interface ProcessedProductVideo {
   buffer: Buffer;
@@ -52,37 +89,9 @@ export class VideoProcessorService {
 
   private transcode(inputPath: string, outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const process = spawn(
-        'ffmpeg',
-        [
-          '-y',
-          '-hide_banner',
-          '-loglevel',
-          'error',
-          '-i',
-          inputPath,
-          '-map',
-          '0:v:0',
-          '-map',
-          '0:a?',
-          '-c:v',
-          'libx264',
-          '-preset',
-          'veryfast',
-          '-crf',
-          '23',
-          '-pix_fmt',
-          'yuv420p',
-          '-c:a',
-          'aac',
-          '-b:a',
-          '128k',
-          '-movflags',
-          '+faststart',
-          outputPath,
-        ],
-        { stdio: ['ignore', 'ignore', 'ignore'] },
-      );
+      const process = spawn('ffmpeg', ffmpegArguments(inputPath, outputPath), {
+        stdio: ['ignore', 'ignore', 'ignore'],
+      });
 
       let timedOut = false;
       const timeout = setTimeout(() => {

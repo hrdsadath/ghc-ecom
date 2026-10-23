@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { Coupon, DiscountType } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { Coupon, DiscountType, Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { auditChangeMetadata } from '../audit/audit-change';
 import { PrismaService } from '../database/prisma.service';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 import { UpdateCouponDto } from './dto/update-coupon.dto';
+
+export type CouponWithStats = Coupon & { redemptionCount: number };
 
 @Injectable()
 export class PromotionsService {
@@ -13,20 +15,31 @@ export class PromotionsService {
     private readonly audit: AuditService,
   ) {}
 
-  list(): Promise<Coupon[]> {
-    return this.prisma.coupon.findMany({ orderBy: { createdAt: 'desc' } });
+  async list(): Promise<CouponWithStats[]> {
+    const coupons = await this.prisma.coupon.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { _count: { select: { redemptions: true } } },
+    });
+    return coupons.map(({ _count, ...coupon }) => ({
+      ...coupon,
+      redemptionCount: _count.redemptions,
+    }));
   }
 
   async create(actorId: string, input: CreateCouponDto): Promise<Coupon> {
     this.validate(input);
-    const coupon = await this.prisma.coupon.create({
-      data: {
-        ...input,
-        code: input.code.toUpperCase(),
-        startsAt: new Date(input.startsAt),
-        endsAt: new Date(input.endsAt),
-      },
-    });
+    const code = input.code.trim().toUpperCase();
+    const coupon = await this.saveCoupon(code, () =>
+      this.prisma.coupon.create({
+        data: {
+          ...input,
+          code,
+          minimumSubtotalPaise: input.minimumSubtotalPaise ?? undefined,
+          startsAt: new Date(input.startsAt),
+          endsAt: new Date(input.endsAt),
+        },
+      }),
+    );
     await this.auditCoupon(actorId, 'promotion.coupon.created', {}, coupon);
     return coupon;
   }
@@ -41,17 +54,32 @@ export class PromotionsService {
       startsAt: input.startsAt ?? existing.startsAt.toISOString(),
       endsAt: input.endsAt ?? existing.endsAt.toISOString(),
     });
-    const coupon = await this.prisma.coupon.update({
-      where: { id: couponId },
-      data: {
-        ...input,
-        code: input.code?.toUpperCase(),
-        startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
-        endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
-      },
-    });
+    const code = input.code?.trim().toUpperCase();
+    const coupon = await this.saveCoupon(code ?? existing.code, () =>
+      this.prisma.coupon.update({
+        where: { id: couponId },
+        data: {
+          ...input,
+          code,
+          minimumSubtotalPaise: input.minimumSubtotalPaise ?? undefined,
+          startsAt: input.startsAt ? new Date(input.startsAt) : undefined,
+          endsAt: input.endsAt ? new Date(input.endsAt) : undefined,
+        },
+      }),
+    );
     await this.auditCoupon(actorId, 'promotion.coupon.updated', existing, coupon);
     return coupon;
+  }
+
+  private async saveCoupon(code: string, save: () => Promise<Coupon>): Promise<Coupon> {
+    try {
+      return await save();
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException(`Coupon code ${code} already exists`);
+      }
+      throw error;
+    }
   }
 
   private validate(input: {
@@ -61,7 +89,7 @@ export class PromotionsService {
     endsAt: string;
   }): void {
     if (input.type === DiscountType.PERCENT && input.value > 10_000) {
-      throw new BadRequestException('Percentage coupon value cannot exceed 10000 basis points');
+      throw new BadRequestException('A percentage coupon cannot take more than 100% off');
     }
     if (new Date(input.endsAt) <= new Date(input.startsAt)) {
       throw new BadRequestException('Coupon end date must be after its start date');

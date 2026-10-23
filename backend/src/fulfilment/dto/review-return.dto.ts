@@ -1,5 +1,5 @@
 import { ReturnStatus } from '@prisma/client';
-import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ReviewReturnDto {
   @IsEnum(ReturnStatus)
@@ -9,4 +9,9 @@ export class ReviewReturnDto {
   @IsString()
   @MaxLength(1000)
   note?: string;
+
+  /** Only when marking a return RECEIVED: put the sold units back on hand. */
+  @IsOptional()
+  @IsBoolean()
+  restock?: boolean;
 }

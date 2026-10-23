@@ -8,6 +8,7 @@ import {
   IsUUID,
   Matches,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
 
@@ -32,6 +33,7 @@ export class ListProductsDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   q?: string;
 
   @IsOptional()

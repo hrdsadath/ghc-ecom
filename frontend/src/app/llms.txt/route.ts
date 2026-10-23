@@ -44,7 +44,7 @@ export async function GET() {
     `- [About](${absoluteUrl('/about')}): ${pageContent.about.metaDesc}`,
     `- [FAQ](${absoluteUrl('/faq')}): ${pageContent.faq.metaDesc}`,
     `- [Contact](${absoluteUrl('/contact')}): ${pageContent.contact.metaDesc}`,
-    `- [Orders and returns](${absoluteUrl('/shipping-returns')}): ${pageContent.shipping.metaDesc}`,
+    `- [Shipping policy](${absoluteUrl('/shipping-returns')}): ${pageContent.shipping.metaDesc}`,
     '',
   ];
 

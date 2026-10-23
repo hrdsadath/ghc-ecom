@@ -16,8 +16,8 @@
   --color-gold-600: #89652f;
   --color-gold-700: #684a23;
   --color-cream: #f1ede4;
-  --font-display: "Cormorant Garamond", Georgia, serif;
-  --font-body: "Plus Jakarta Sans", sans-serif;
+  --font-display: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
+  --font-body: var(--font-jakarta), "Plus Jakarta Sans", sans-serif;
 }
 
 html {

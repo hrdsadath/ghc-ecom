@@ -62,6 +62,33 @@ describe('OperationsService', () => {
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
+  it('serves one database query to every caller within 30 seconds', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    await Promise.all([service.snapshot(), service.snapshot(), service.snapshot()]);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(1_000_000 + 29_000);
+    await service.snapshot();
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(1_000_000 + 31_000);
+    await service.snapshot();
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+
+    // The monitor always takes a fresh reading.
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    await service.checkAndAlert();
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+  });
+
+  it('counts low stock only for active variants in active warehouses', async () => {
+    await service.snapshot();
+    const sql = (prisma.$queryRaw.mock.calls[0][0] as string[]).join('?');
+    expect(sql).toMatch(/warehouse\.is_active/);
+    expect(sql).toMatch(/variant\.is_active/);
+  });
+
   it('sends an alert when a terminal job failure is observable', async () => {
     const request = jest
       .spyOn(global, 'fetch')

@@ -11,3 +11,8 @@ restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 overlapSeconds = 20
 drainingSeconds = 30
+
+# Run next to the database (Supabase ap-south-1, Mumbai). Singapore is Railway's closest
+# region; the Redis service must be moved to the same region in the Railway dashboard.
+[deploy.multiRegionConfig.asia-southeast1-eqsg3a]
+numReplicas = 1

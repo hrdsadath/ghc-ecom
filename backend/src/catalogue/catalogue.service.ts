@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -25,12 +26,14 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { ImageMetadataDto } from './dto/image-metadata.dto';
+import { ListAdminProductsDto } from './dto/list-admin-products.dto';
 import { ListProductsDto } from './dto/list-products.dto';
 import { ProductImageMetadataDto } from './dto/product-image-metadata.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { UpdateProductImageDto } from './dto/update-product-image.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
+import { googleDriveSourcePrefixes } from './google-drive-image.service';
 import { ImageDerivative, ImageProcessorService } from './image-processor.service';
 import { VideoProcessorService } from './video-processor.service';
 
@@ -71,6 +74,37 @@ const productCardInclude = {
   },
 } satisfies Prisma.ProductInclude;
 
+// Storefront cards (grids, search, wishlist) read only these fields, so public listings skip
+// the long description, SEO fields and timestamps that only the product page and admin use.
+const publicCardSelect = {
+  id: true,
+  name: true,
+  slug: true,
+  shortDescription: true,
+  category: { select: { id: true, name: true, slug: true } },
+  variants: {
+    where: { isActive: true },
+    orderBy: productInclude.variants.orderBy,
+    select: {
+      id: true,
+      sku: true,
+      pricePaise: true,
+      compareAtPricePaise: true,
+      attributes: true,
+      isActive: true,
+      inventoryLevels: productInclude.variants.include.inventoryLevels,
+    },
+  },
+  images: productCardInclude.images,
+} satisfies Prisma.ProductSelect;
+
+type PublicCardWithInventory = Prisma.ProductGetPayload<{ select: typeof publicCardSelect }>;
+
+interface CardShape {
+  images: { variantLinks: { variantId: string }[] }[];
+  variants: { id: string; inventoryLevels: { onHand: number; reserved: number }[] }[];
+}
+
 type ProductWithInventory = Prisma.ProductGetPayload<{
   include: typeof productInclude;
 }>;
@@ -88,6 +122,8 @@ type WithAvailableStock<T extends { variants: { inventoryLevels: unknown }[] }> 
 
 export type CatalogueProductCard = WithAvailableStock<ProductCardWithInventory>;
 
+export type PublicProductCard = WithAvailableStock<PublicCardWithInventory>;
+
 type CatalogueVariant = Omit<ProductWithInventory['variants'][number], 'inventoryLevels'> & {
   availableStock: number;
 };
@@ -97,11 +133,20 @@ export type CatalogueProduct = Omit<ProductWithInventory, 'variants'> & {
 };
 
 export interface PaginatedProducts {
+  items: PublicProductCard[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface PaginatedAdminProducts {
   items: CatalogueProductCard[];
   total: number;
   page: number;
   limit: number;
 }
+
+export type CatalogueProductImage = ProductImage & { variantLinks: { variantId: string }[] };
 
 interface RequestContext {
   ipAddress?: string;
@@ -125,6 +170,9 @@ export const PUBLIC_CATALOGUE_CACHE_VERSION_KEY = 'catalogue:version';
 // Catalogue edits and admin stock adjustments bump the version key, which skips stale copies.
 const PUBLIC_CATALOGUE_CACHE_FRESH_MS = 30_000;
 const PUBLIC_CATALOGUE_CACHE_TTL_SECONDS = 15 * 60;
+// Each cache hit would otherwise read the version key before the entry; remembering it this
+// long saves that Redis round trip while edits still show on every instance within a second.
+const PUBLIC_CATALOGUE_VERSION_MEMO_MS = 1_000;
 
 interface PublicCacheEntry<T> {
   value: T;
@@ -155,7 +203,9 @@ const VIDEO_AUDIT_FIELDS = ['altText', 'sortOrder', 'sourceFilename'] as const;
 
 @Injectable()
 export class CatalogueService {
+  private readonly logger = new Logger(CatalogueService.name);
   private readonly publicLoads = new Map<string, Promise<unknown>>();
+  private cacheVersion: { value: string; until: number } | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -188,64 +238,107 @@ export class CatalogueService {
   }
 
   private async loadPublicProducts(query: ListProductsDto): Promise<PaginatedProducts> {
-    const where: Prisma.ProductWhereInput = {
-      ...(query.ids?.length ? { id: { in: query.ids } } : {}),
-      status: ProductStatus.PUBLISHED,
-      publishedAt: { lte: new Date() },
-      category: {
-        isPublished: true,
-        ...(query.category ? { slug: query.category } : {}),
-      },
-      ...(query.q
-        ? {
-            OR: [
-              { name: { contains: query.q, mode: 'insensitive' } },
-              { shortDescription: { contains: query.q, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-    // Stock is derived from inventory levels, so it cannot be an ORDER BY column. Rank the
-    // matching ids first (newest first, then in-stock products ahead of sold-out ones) so
-    // every page keeps that order, and load full cards only for the requested page.
-    const ranked = await this.prisma.product.findMany({
-      relationLoadStrategy: 'join',
-      where,
-      select: {
-        id: true,
-        variants: {
-          where: { isActive: true },
-          select: { inventoryLevels: productInclude.variants.include.inventoryLevels },
-        },
-      },
-      orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
-    });
-    const inStock = (product: (typeof ranked)[number]) =>
+    const skip = (query.page - 1) * query.limit;
+    const inStock = (product: PublicCardWithInventory): boolean =>
       product.variants.some((variant) =>
         variant.inventoryLevels.some((level) => level.onHand - level.reserved > 0),
       );
-    const skip = (query.page - 1) * query.limit;
-    const pageIds = [...ranked.filter(inStock), ...ranked.filter((product) => !inStock(product))]
-      .slice(skip, skip + query.limit)
-      .map((product) => product.id);
+    if (query.ids?.length) {
+      // An id list (a wishlist) is at most 100 products, so load the cards in one round
+      // trip and rank them here.
+      const cards = await this.prisma.product.findMany({
+        relationLoadStrategy: 'join',
+        where: {
+          id: { in: query.ids },
+          status: ProductStatus.PUBLISHED,
+          publishedAt: { lte: new Date() },
+          category: {
+            isPublished: true,
+            ...(query.category ? { slug: query.category } : {}),
+          },
+          ...(query.q
+            ? {
+                OR: [
+                  { name: { contains: query.q, mode: 'insensitive' } },
+                  { shortDescription: { contains: query.q, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        select: publicCardSelect,
+        orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+      return {
+        items: [...cards.filter(inStock), ...cards.filter((product) => !inStock(product))]
+          .slice(skip, skip + query.limit)
+          .map((product) => this.productCard(product)),
+        total: cards.length,
+        page: query.page,
+        limit: query.limit,
+      };
+    }
+
+    // Rank in SQL (in-stock products first, then newest) and fetch just the requested page of
+    // ids with the total, instead of loading every matching product to sort it here.
+    const pattern = query.q ? `%${query.q.replace(/[\\%_]/g, '\\$&')}%` : null;
+    const filters = Prisma.sql`
+      product.status = 'published'
+      and product.published_at <= now()
+      and category.is_published
+      ${query.category ? Prisma.sql`and category.slug = ${query.category}` : Prisma.empty}
+      ${
+        pattern
+          ? Prisma.sql`and (product.name ilike ${pattern} or product.short_description ilike ${pattern})`
+          : Prisma.empty
+      }`;
+    const ranked = await this.prisma.$queryRaw<{ id: string; total: number }[]>`
+      select product.id, (count(*) over ())::integer as total
+      from public.products as product
+      join public.categories as category on category.id = product.category_id
+      where ${filters}
+      order by
+        exists (
+          select 1
+          from public.product_variants as variant
+          join public.inventory_levels as level on level.variant_id = variant.id
+          join public.warehouses as warehouse on warehouse.id = level.warehouse_id
+          where variant.product_id = product.id
+            and variant.is_active
+            and warehouse.is_active
+            and level.on_hand - level.reserved > 0
+        ) desc,
+        product.published_at desc,
+        product.created_at desc,
+        product.id
+      limit ${query.limit}
+      offset ${skip}
+    `;
+    const total =
+      ranked[0]?.total ??
+      (skip > 0
+        ? // Past the last page the window count has no row to ride on.
+          (
+            await this.prisma.$queryRaw<{ total: number }[]>`
+              select count(*)::integer as total
+              from public.products as product
+              join public.categories as category on category.id = product.category_id
+              where ${filters}
+            `
+          )[0].total
+        : 0);
+    const pageIds = ranked.map((row) => row.id);
     const items = pageIds.length
       ? await this.prisma.product.findMany({
           relationLoadStrategy: 'join',
           where: { id: { in: pageIds } },
-          include: {
-            ...productCardInclude,
-            variants: {
-              ...productCardInclude.variants,
-              where: { isActive: true },
-            },
-          },
+          select: publicCardSelect,
         })
       : [];
     const position = new Map(pageIds.map((id, index) => [id, index]));
     items.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
     return {
       items: items.map((product) => this.productCard(product)),
-      total: ranked.length,
+      total,
       page: query.page,
       limit: query.limit,
     };
@@ -284,13 +377,75 @@ export class CatalogueService {
     });
   }
 
+  /** Every product, newest first: catalogue export and import matching read the whole list. */
   async listAdminProducts(): Promise<CatalogueProductCard[]> {
     const products = await this.prisma.product.findMany({
       relationLoadStrategy: 'join',
       include: productCardInclude,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
     return products.map((product) => this.productCard(product));
+  }
+
+  /** One page of the admin product table, newest first, with the number of matches. */
+  async listAdminProductPage(query: ListAdminProductsDto): Promise<PaginatedAdminProducts> {
+    const skip = (query.page - 1) * query.limit;
+    // ILIKE treats % and _ as wildcards, so a search for "50%" must match the literal text.
+    const pattern = query.q ? `%${query.q.replace(/[\\%_]/g, '\\$&')}%` : null;
+    const filters = Prisma.sql`
+      true
+      ${query.status ? Prisma.sql`and product.status = ${query.status.toLowerCase()}::public.product_status` : Prisma.empty}
+      ${query.category ? Prisma.sql`and product.category_id = ${query.category}::uuid` : Prisma.empty}
+      ${
+        pattern
+          ? Prisma.sql`and (
+              product.name ilike ${pattern}
+              or product.slug ilike ${pattern}
+              or exists (
+                select 1
+                from public.product_variants as variant
+                where variant.product_id = product.id
+                  and (variant.sku ilike ${pattern} or variant.alias ilike ${pattern})
+              )
+            )`
+          : Prisma.empty
+      }`;
+    const ranked = await this.prisma.$queryRaw<{ id: string; total: number }[]>`
+      select product.id, (count(*) over ())::integer as total
+      from public.products as product
+      where ${filters}
+      order by product.created_at desc, product.id desc
+      limit ${query.limit}
+      offset ${skip}
+    `;
+    const total =
+      ranked[0]?.total ??
+      (skip > 0
+        ? // Past the last page the window count has no row to ride on.
+          (
+            await this.prisma.$queryRaw<{ total: number }[]>`
+              select count(*)::integer as total
+              from public.products as product
+              where ${filters}
+            `
+          )[0].total
+        : 0);
+    const pageIds = ranked.map((row) => row.id);
+    const products = pageIds.length
+      ? await this.prisma.product.findMany({
+          relationLoadStrategy: 'join',
+          where: { id: { in: pageIds } },
+          include: productCardInclude,
+        })
+      : [];
+    const position = new Map(pageIds.map((id, index) => [id, index]));
+    products.sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
+    return {
+      items: products.map((product) => this.productCard(product)),
+      total,
+      page: query.page,
+      limit: query.limit,
+    };
   }
 
   async getAdminProduct(productId: string): Promise<CatalogueProduct> {
@@ -312,14 +467,17 @@ export class CatalogueService {
   ): Promise<Category> {
     const name = this.normalizedCategoryName(input.name);
     this.assertPublishableCategory(name, input.isPublished);
-    const category = await this.mutate(() =>
-      this.prisma.category.create({
-        data: {
-          ...input,
-          name,
-          slug: this.categorySlug(name),
-        },
-      }),
+    const category = await this.mutate(
+      () =>
+        this.prisma.category.create({
+          data: {
+            ...input,
+            name,
+            slug: this.categorySlug(name),
+          },
+        }),
+      'Category',
+      'A category with this name already exists',
     );
     await this.auditMutation(
       actorId,
@@ -348,15 +506,12 @@ export class CatalogueService {
       name = existing.name;
     }
     this.assertPublishableCategory(name, input.isPublished);
+    // The slug is part of storefront URLs, so renaming a category keeps it unchanged.
     const category = await this.mutate(
       () =>
         this.prisma.category.update({
           where: { id: categoryId },
-          data: {
-            ...input,
-            name,
-            ...(name ? { slug: this.categorySlug(name) } : {}),
-          },
+          data: { ...input, name },
         }),
       'Category',
     );
@@ -395,11 +550,25 @@ export class CatalogueService {
     input: CreateProductDto,
     context: RequestContext,
   ): Promise<CatalogueProduct> {
-    const product = await this.mutate(() =>
-      this.prisma.product.create({
-        data: this.productData(input),
-        include: productInclude,
-      }),
+    const product = await this.mutate(
+      async () => {
+        // Two products can share a name (or a name with no Latin letters can slugify to the
+        // same fallback), so a taken URL gets the next free numeric suffix instead of a 409.
+        for (let attempt = 1; ; attempt += 1) {
+          const slug = await this.availableProductSlug(input.slug.toLowerCase());
+          try {
+            return await this.prisma.product.create({
+              data: this.productData({ ...input, slug }),
+              include: productInclude,
+            });
+          } catch (error) {
+            // Another save took the same URL between the check and the insert.
+            if (attempt >= 3 || !this.uniqueTargetIncludes(error, 'slug')) throw error;
+          }
+        }
+      },
+      'Product',
+      'A product with this URL already exists',
     );
     await this.auditMutation(
       actorId,
@@ -432,10 +601,11 @@ export class CatalogueService {
       () =>
         this.prisma.product.update({
           where: { id: productId },
-          data: this.productData(input),
+          data: this.productData(input, previous),
           include: productInclude,
         }),
       'Product',
+      'A product with this URL already exists',
     );
     await this.auditMutation(
       actorId,
@@ -695,6 +865,25 @@ export class CatalogueService {
     }
   }
 
+  /** The image this product already holds from a Google Drive file, oldest first. */
+  async findGoogleDriveImage(productId: string, fileId: string): Promise<ProductImage | null> {
+    const prefixes = googleDriveSourcePrefixes(fileId);
+    const candidates = await this.prisma.productImage.findMany({
+      where: {
+        productId,
+        OR: prefixes.map((prefix) => ({ sourceFilename: { startsWith: prefix } })),
+      },
+      include: { variantLinks: { select: { variantId: true } } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    // Prisma passes `_` (valid in Drive ids) to LIKE unescaped, so confirm the exact prefix.
+    return (
+      candidates.find((image) =>
+        prefixes.some((prefix) => image.sourceFilename.startsWith(prefix)),
+      ) ?? null
+    );
+  }
+
   async replaceProductImage(
     actorId: string,
     productId: string,
@@ -814,6 +1003,77 @@ export class CatalogueService {
       ),
     );
     return updated;
+  }
+
+  /**
+   * Puts every image of a product in the given order (sortOrder 0..n-1) in one transaction.
+   * The list must name each of the product's images exactly once, so an editor working from
+   * a stale gallery (an image added or deleted elsewhere) is refused instead of half-applied.
+   */
+  async reorderProductImages(
+    actorId: string,
+    productId: string,
+    imageIds: string[],
+    context: RequestContext,
+  ): Promise<CatalogueProductImage[]> {
+    const product = await this.requireProduct(productId);
+    const imageSelect = {
+      orderBy: productInclude.images.orderBy,
+      include: productInclude.images.include,
+    };
+    const { before, after, changed } = await this.prisma.$transaction(async (transaction) => {
+      // Serializes reorders (and keeps the image set stable) for this product until commit.
+      await transaction.$queryRaw`
+        select id from public.product_images where product_id = ${productId}::uuid for update
+      `;
+      const current = await transaction.productImage.findMany({
+        where: { productId },
+        ...imageSelect,
+      });
+      const currentIds = new Set(current.map((image) => image.id));
+      if (
+        imageIds.length !== currentIds.size ||
+        new Set(imageIds).size !== imageIds.length ||
+        imageIds.some((id) => !currentIds.has(id))
+      ) {
+        throw new BadRequestException(
+          'The image order must list every image of this product exactly once. Reload the product and try again.',
+        );
+      }
+      const changed = await transaction.$executeRaw`
+        update public.product_images as image
+        set sort_order = ordered.position - 1
+        from unnest(${imageIds}::uuid[]) with ordinality as ordered(id, position)
+        where image.id = ordered.id
+          and image.product_id = ${productId}::uuid
+          and image.sort_order <> ordered.position - 1
+      `;
+      return {
+        before: current,
+        after: changed
+          ? await transaction.productImage.findMany({ where: { productId }, ...imageSelect })
+          : current,
+        changed,
+      };
+    });
+    // Saving the order it already has changes nothing, so there is nothing to audit or expire.
+    if (!changed) return after;
+    const order = (images: CatalogueProductImage[]): string[] =>
+      images.map((image) => image.sourceFilename || image.altText);
+    await this.auditMutation(
+      actorId,
+      'catalogue.product.images_reordered',
+      'product',
+      productId,
+      context,
+      auditChangeMetadata(
+        product.name,
+        { imageOrder: order(before) },
+        { imageOrder: order(after) },
+        ['imageOrder'],
+      ),
+    );
+    return after;
   }
 
   async deleteProductImage(
@@ -973,19 +1233,56 @@ export class CatalogueService {
     return options.length ? `${options.join(' · ')} · ${variant.sku}` : variant.sku;
   }
 
+  /**
+   * Optional DTO fields also let null through (IsOptional skips null), e.g. an import
+   * rollback restoring a product without a material: nullable columns are cleared and
+   * required columns ignore null instead of failing in the database.
+   */
   private productData(
     input: CreateProductDto | UpdateProductDto,
+    previous?: { status: ProductStatus; publishedAt: Date | null },
   ): Prisma.ProductUncheckedCreateInput {
+    const nullable = <T>(value: T | null | undefined): T | null | undefined =>
+      value === undefined ? undefined : value;
     return {
-      ...input,
-      categoryId: input.categoryId as string,
-      name: input.name as string,
+      categoryId: (input.categoryId ?? undefined) as string,
+      name: (input.name ?? undefined) as string,
       slug: input.slug?.toLowerCase() as string,
-      material: input.material === undefined ? undefined : input.material.trim() || null,
-      attributes: input.attributes as Prisma.InputJsonValue | undefined,
-      publishedAt:
-        input.status === ProductStatus.PUBLISHED ? new Date() : input.status ? null : undefined,
+      shortDescription: nullable(input.shortDescription),
+      description: nullable(input.description),
+      material: input.material == null ? nullable(input.material) : input.material.trim() || null,
+      status: input.status ?? undefined,
+      attributes: (input.attributes ?? undefined) as Prisma.InputJsonValue | undefined,
+      seoTitle: nullable(input.seoTitle),
+      seoDescription: nullable(input.seoDescription),
+      publishedAt: this.publishedAt(input.status, previous),
     };
+  }
+
+  /** Only a move into PUBLISHED stamps the publish date; re-saving keeps the original. */
+  private publishedAt(
+    status: ProductStatus | null | undefined,
+    previous?: { status: ProductStatus; publishedAt: Date | null },
+  ): Date | null | undefined {
+    if (!status) return undefined;
+    if (status !== ProductStatus.PUBLISHED) return null;
+    if (previous?.status === ProductStatus.PUBLISHED && previous.publishedAt) return undefined;
+    return new Date();
+  }
+
+  private async availableProductSlug(base: string): Promise<string> {
+    const taken = new Set(
+      (
+        await this.prisma.product.findMany({
+          where: { slug: { startsWith: base } },
+          select: { slug: true },
+        })
+      ).map((product) => product.slug),
+    );
+    if (!taken.has(base)) return base;
+    let suffix = 2;
+    while (taken.has(`${base}-${suffix}`)) suffix += 1;
+    return `${base}-${suffix}`;
   }
 
   private validateVariantPrices(pricePaise: number, compareAtPricePaise?: number | null): void {
@@ -1101,8 +1398,8 @@ export class CatalogueService {
 
   private variantAttributes(
     input: Record<string, unknown> | undefined,
-    color: string | undefined,
-    colorHex: string | undefined,
+    color: string | null | undefined,
+    colorHex: string | null | undefined,
     size: string | null | undefined,
     packQuantity: number | null | undefined,
     existing?: Prisma.JsonValue,
@@ -1110,8 +1407,13 @@ export class CatalogueService {
     const base =
       existing && typeof existing === 'object' && !Array.isArray(existing) ? { ...existing } : {};
     const attributes = { ...base, ...(input ?? {}) } as Record<string, Prisma.JsonValue>;
-    if (color !== undefined) attributes.color = color.trim();
-    if (colorHex !== undefined) attributes.colorHex = colorHex.toUpperCase();
+    // null clears a dimension even when stale `attributes` from the client still carry it.
+    if (color === null) {
+      delete attributes.color;
+      delete attributes.colorHex;
+    } else if (color !== undefined) attributes.color = color.trim();
+    if (colorHex === null) delete attributes.colorHex;
+    else if (colorHex !== undefined) attributes.colorHex = colorHex.toUpperCase();
     if (size === null) delete attributes.size;
     else if (size !== undefined) attributes.size = size.trim();
     if (packQuantity === null) delete attributes.packQuantity;
@@ -1169,40 +1471,42 @@ export class CatalogueService {
   }
 
   private async removeStoredVideos(videos: ProductVideo[]): Promise<void> {
-    const paths = videos.flatMap((video) => (video.storagePath ? [video.storagePath] : []));
-    if (paths.length === 0) {
-      return;
-    }
-    try {
-      await this.supabase.removeProductVideos(paths);
-    } catch {
-      throw new BadGatewayException('Product video cleanup failed');
-    }
+    await this.tryRemoveVideos(
+      videos.flatMap((video) => (video.storagePath ? [video.storagePath] : [])),
+    );
   }
 
   private async removeImages(paths: string[]): Promise<void> {
-    try {
-      await this.supabase.removeProductImages(paths);
-    } catch {
-      throw new BadGatewayException('Product image cleanup failed');
-    }
+    await this.tryRemove(paths);
   }
 
+  // Storage cleanup always runs after the database change has committed (or when a record
+  // was never created), so a failure can only leave an orphaned file, never a broken public
+  // reference. It is logged for manual cleanup instead of failing a change that already happened.
   private async tryRemove(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
     try {
       await this.supabase.removeProductImages(paths);
-    } catch {
-      // Database references are removed or replaced first, so a cleanup failure
-      // can leave an orphan but can never leave a broken public image reference.
+    } catch (error) {
+      this.logger.warn(
+        `Orphaned product image files left in storage: ${paths.join(', ')} (${this.errorMessage(error)})`,
+      );
     }
   }
 
   private async tryRemoveVideos(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
     try {
       await this.supabase.removeProductVideos(paths);
-    } catch {
-      // The video record was never created, so a failed cleanup can only leave an orphaned file.
+    } catch (error) {
+      this.logger.warn(
+        `Orphaned product video files left in storage: ${paths.join(', ')} (${this.errorMessage(error)})`,
+      );
     }
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   /**
@@ -1210,7 +1514,7 @@ export class CatalogueService {
    * image when none is shared) and the first image of each variant. Order is kept,
    * so the frontend's primary-image choice is the same as with every image.
    */
-  private productCard(product: ProductCardWithInventory): CatalogueProductCard {
+  private productCard<T extends CardShape>(product: T): WithAvailableStock<T> {
     const { images } = product;
     const picked = new Set(
       [
@@ -1226,11 +1530,10 @@ export class CatalogueService {
     });
   }
 
-  private withAvailableStock(product: ProductWithInventory): CatalogueProduct;
-  private withAvailableStock(product: ProductCardWithInventory): CatalogueProductCard;
-  private withAvailableStock(
-    product: ProductWithInventory | ProductCardWithInventory,
-  ): CatalogueProduct | CatalogueProductCard {
+  private withAvailableStock<T extends Pick<CardShape, 'variants'>>(
+    product: T,
+  ): WithAvailableStock<T> {
+    // TypeScript cannot see that the rest of each variant is Omit<variant, 'inventoryLevels'>.
     return {
       ...product,
       variants: product.variants.map(({ inventoryLevels, ...variant }) => ({
@@ -1242,7 +1545,7 @@ export class CatalogueService {
           ...inventoryLevels.map((level) => Math.max(0, level.onHand - level.reserved)),
         ),
       })),
-    };
+    } as unknown as WithAvailableStock<T>;
   }
 
   private async auditMutation(
@@ -1270,8 +1573,7 @@ export class CatalogueService {
     let key: string;
     let cached: PublicCacheEntry<T> | null;
     try {
-      const version = (await this.redis.get(PUBLIC_CATALOGUE_CACHE_VERSION_KEY)) ?? '0';
-      key = `catalogue:v2:${version}:${suffix}`;
+      key = `catalogue:v2:${await this.publicCacheVersion(this.redis)}:${suffix}`;
       cached = await this.redis.getJson<PublicCacheEntry<T>>(key);
     } catch {
       return load();
@@ -1311,7 +1613,15 @@ export class CatalogueService {
     return pending;
   }
 
+  private async publicCacheVersion(redis: RedisService): Promise<string> {
+    if (this.cacheVersion && this.cacheVersion.until > Date.now()) return this.cacheVersion.value;
+    const value = (await redis.get(PUBLIC_CATALOGUE_CACHE_VERSION_KEY)) ?? '0';
+    this.cacheVersion = { value, until: Date.now() + PUBLIC_CATALOGUE_VERSION_MEMO_MS };
+    return value;
+  }
+
   private async invalidatePublicCache(): Promise<void> {
+    this.cacheVersion = null;
     try {
       await this.redis?.increment(PUBLIC_CATALOGUE_CACHE_VERSION_KEY);
     } catch {
@@ -1319,17 +1629,20 @@ export class CatalogueService {
     }
   }
 
-  private async mutate<T>(operation: () => Promise<T>, label = 'Record'): Promise<T> {
+  private async mutate<T>(
+    operation: () => Promise<T>,
+    label = 'Record',
+    conflictMessage = 'A record with that unique value already exists',
+  ): Promise<T> {
     try {
       return await operation();
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
-          const target = Array.isArray(error.meta?.target) ? error.meta.target.map(String) : [];
-          if (target.some((field) => field.toLowerCase().includes('sku'))) {
+          if (this.uniqueTargetIncludes(error, 'sku')) {
             throw new ConflictException('SKU must be unique across the catalogue');
           }
-          throw new ConflictException('A record with that unique value already exists');
+          throw new ConflictException(conflictMessage);
         }
         if (error.code === 'P2003') {
           throw new ConflictException(`${label} is still in use`);
@@ -1340,5 +1653,14 @@ export class CatalogueService {
       }
       throw error;
     }
+  }
+
+  private uniqueTargetIncludes(error: unknown, field: string): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+      return false;
+    }
+    const target = error.meta?.target;
+    const fields = Array.isArray(target) ? target.map(String) : [String(target ?? '')];
+    return fields.some((candidate) => candidate.toLowerCase().includes(field));
   }
 }

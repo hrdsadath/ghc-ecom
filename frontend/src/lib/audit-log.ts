@@ -28,6 +28,29 @@ const entityLabels: Record<string, string> = {
     user: 'Team member',
 };
 
+/** Entity types offered as an activity-log filter. */
+export const auditEntityTypeOptions = Object.entries(entityLabels)
+    .map(([value, label]) => ({ value, label }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+
+/** Actions whose generic "<entity> <verb>" label would be misleading. */
+const actionLabels: Record<string, string> = {
+    'user.role.assigned': 'Staff role granted',
+    'user.role.removed': 'Staff role removed',
+    'auth.staff.signed_in': 'Staff sign-in',
+    'user.suspended': 'Staff account suspended',
+    'user.reinstated': 'Staff account reinstated',
+    'user.password_reset.sent': 'Password reset email sent',
+};
+
+const roleLabels: Record<string, string> = {
+    ADMIN: 'Administrator',
+    CATALOGUE_MANAGER: 'Catalogue manager',
+    WAREHOUSE_MANAGER: 'Warehouse manager',
+    SUPPORT_AGENT: 'Support agent',
+    CUSTOMER: 'Customer',
+};
+
 const fieldLabels: Record<string, string> = {
     pricePaise: 'Price',
     compareAtPricePaise: 'Compare-at price',
@@ -61,12 +84,14 @@ export const auditValue = (field: string, value: unknown): string => {
     if (value === null || value === undefined || value === '') return 'None';
     if (typeof value === 'boolean') return value ? 'Yes' : 'No';
     if (typeof value === 'number' && /paise$/i.test(field)) return rupees(value);
+    if (typeof value === 'string' && /^roles?$/.test(field) && roleLabels[value]) return roleLabels[value];
     if (Array.isArray(value)) return value.map((item) => auditValue(field, item)).join(', ');
     if (typeof value === 'object') return JSON.stringify(value);
     return String(value).replace(/_/g, ' ');
 };
 
 export const auditActionLabel = (log: AuditLog): string => {
+    if (actionLabels[log.action]) return actionLabels[log.action];
     const entity = entityLabels[log.entityType] || auditFieldLabel(log.entityType);
     const verb = log.action.split('.').at(-1)?.replace(/_/g, ' ') || 'changed';
     return `${entity} ${verb}`;
@@ -103,6 +128,8 @@ export const auditChangeRows = (log: AuditLog): AuditChangeRow[] => {
 
 export const auditFactRows = (log: AuditLog): AuditFactRow[] => {
     const ignored = new Set(['entityLabel', 'changes', 'from', 'to']);
+    // The email is already shown as the record name.
+    if (log.metadata?.email === log.metadata?.entityLabel) ignored.add('email');
     return Object.entries(log.metadata || {})
         .filter(([field]) => !ignored.has(field))
         .map(([field, value]) => ({ field: auditFieldLabel(field), value: auditValue(field, value) }));

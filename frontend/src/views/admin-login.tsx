@@ -5,15 +5,11 @@ import { Link, Redirect, useHistory, useLocation } from '../lib/router';
 import { STAFF_ROLES as staffRoles, useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { AppRole } from '../types';
-import { IconAlert, IconArrowRight, IconCheckCircle, IconShield } from '../components/Icons';
+import { IconAlert, IconArrowRight, IconCheckCircle, IconClock, IconShield } from '../components/Icons';
 import { safeInternalPath } from '../lib/navigation';
+import { defaultAdminPath as firstAdminPath, isAdminPath } from '../lib/admin-routes';
 
-const defaultAdminPath = (roles: AppRole[]) => {
-    if (roles.includes('ADMIN')) return '/admin';
-    if (roles.includes('CATALOGUE_MANAGER')) return '/admin/catalogue';
-    if (roles.includes('WAREHOUSE_MANAGER') || roles.includes('SUPPORT_AGENT')) return '/admin/orders';
-    return '/account';
-};
+const defaultAdminPath = (roles: AppRole[]) => firstAdminPath(roles) ?? '/account';
 
 const AdminLoginPage = () => {
     const { signedIn, isInitializing, session, sync, signOut } = useAuth();
@@ -23,9 +19,10 @@ const AdminLoginPage = () => {
     const [error, setError] = useState('');
     const [showPassword, setShowPassword] = useState(false);
 
-    const requestedNext = new URLSearchParams(location.search).get('next');
-    const requestedPath = safeInternalPath(requestedNext, '');
-    const safeNext = requestedPath === '/admin' || requestedPath.startsWith('/admin/') ? requestedPath : null;
+    const searchParams = new URLSearchParams(location.search);
+    const requestedPath = safeInternalPath(searchParams.get('next'), '');
+    const safeNext = isAdminPath(requestedPath) ? requestedPath : null;
+    const sessionExpired = searchParams.get('reason') === 'expired';
     const roles = session?.roles || [];
     const isStaff = roles.some((role) => staffRoles.includes(role));
 
@@ -112,6 +109,13 @@ const AdminLoginPage = () => {
                         <h2 className="mt-2 text-4xl font-bold tracking-[-0.04em]">Welcome back</h2>
                         <p className="mt-3 text-sm leading-6 text-[#6b7069]">Sign in with the account provided by your administrator.</p>
                     </div>
+
+                    {sessionExpired && !signedIn && !error && (
+                        <div className="mb-5 flex gap-3 rounded-xl border border-amber-300/70 bg-amber-50 p-3.5 text-sm leading-5 text-amber-950" role="status">
+                            <IconClock size={18} className="mt-0.5 shrink-0 text-amber-700" />
+                            <span>Your session expired. Sign in again to continue where you left off.</span>
+                        </div>
+                    )}
 
                     {signedIn && !isStaff ? (
                         <div className="rounded-2xl border border-amber-300/70 bg-amber-50 p-5" role="alert">

@@ -134,6 +134,7 @@ let mockRoles: string[] = [];
 let currentProduct = product;
 let mockImportedProductFailure = false;
 let mockDriveImageGate: Promise<void> | null = null;
+let mockImageOrderFailure = false;
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -197,11 +198,59 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
                 onHand: 8,
                 reserved: 2,
                 lowStockThreshold: 3,
+                sku: product.variants[0].sku,
+                alias: null,
+                productId: product.id,
+                productName: product.name,
+                color: 'Gold',
+                colorHex: '#C5A059',
+                thumbnailUrl: '/product.webp',
+                variantIsActive: true,
+                warehouseCode: 'MAIN',
+                warehouseName: 'Main Warehouse',
+                warehouseIsActive: true,
             },
         ]);
     }
+    if (url.endsWith('/admin/promotions/coupons') && (!init?.method || init.method === 'GET')) {
+        return json([
+            {
+                id: 'coupon-1',
+                code: 'WELCOME10',
+                type: 'FIXED',
+                value: 25_000,
+                minimumSubtotalPaise: 100_000,
+                maximumDiscountPaise: null,
+                usageLimit: 100,
+                perUserLimit: 1,
+                startsAt: '2020-01-01T00:00:00.000+05:30',
+                endsAt: '2020-01-31T23:59:59.999+05:30',
+                isActive: true,
+                createdAt: '2020-01-01T00:00:00.000Z',
+                redemptionCount: 7,
+            },
+        ]);
+    }
+    if (/\/admin\/promotions\/coupons\/[^/]+$/.test(url) && init?.method === 'PATCH') {
+        return json({ id: 'coupon-1', ...JSON.parse(String(init.body)) });
+    }
     if (url.endsWith('/admin/inventory/warehouses')) {
         return json([{ id: 'warehouse-1', code: 'MAIN', name: 'Main Warehouse', isActive: true }]);
+    }
+    if (url.endsWith('/admin/catalogue/products/all')) return json([currentProduct]);
+    if (/\/admin\/catalogue\/products\/[^/]+\/images\/order$/.test(url) && init?.method === 'PUT') {
+        if (mockImageOrderFailure) return json({ message: 'The image order must list every image of this product exactly once.' }, 400);
+        const { imageIds } = JSON.parse(String(init.body)) as { imageIds: string[] };
+        return json(imageIds.map((id, sortOrder) => ({ ...currentProduct.images.find((image) => image.id === id), sortOrder })));
+    }
+    if (/\/admin\/catalogue\/products\/[^/]+$/.test(url) && init?.method === 'PATCH') {
+        return json({ ...currentProduct, ...(JSON.parse(String(init.body)) as Partial<Product>), id: url.split('/').pop() });
+    }
+    if (/\/admin\/catalogue\/products\/[^/]+$/.test(url) && (!init?.method || init.method === 'GET')) {
+        return json({ ...currentProduct, id: url.split('/').pop() });
+    }
+    if (/\/admin\/catalogue\/variants\/[^/]+$/.test(url) && init?.method === 'PATCH') {
+        return json({ ...currentProduct.variants[0], ...(JSON.parse(String(init.body)) as object), id: url.split('/').pop() });
     }
     if (url.endsWith('/admin/catalogue/products') && init?.method === 'POST') {
         if (mockImportedProductFailure) return json({ message: 'Product save failed' }, 400);
@@ -224,8 +273,8 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     if (/\/admin\/catalogue\/categories\/[^/]+$/.test(url) && init?.method === 'DELETE') {
         return new Response(null, { status: 204 });
     }
-    if (url.endsWith('/admin/audit-logs')) {
-        return json([
+    if (url.includes('/admin/audit-logs')) {
+        return json({ nextCursor: null, items: [
             {
                 id: 'audit-1',
                 actorId: 'user-1',
@@ -243,7 +292,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
                 ipAddress: '127.0.0.1',
                 createdAt: '2026-08-09T08:00:00.000Z',
             },
-        ]);
+        ] });
     }
     if (url.endsWith('/admin/users') && (!init?.method || init.method === 'GET')) {
         return json([
@@ -303,6 +352,7 @@ describe('black and gold commerce UI', () => {
         currentProduct = product;
         mockImportedProductFailure = false;
         mockDriveImageGate = null;
+        mockImageOrderFailure = false;
         saveSession(null);
         vi.stubGlobal('fetch', fetchMock);
         fetchMock.mockClear();
@@ -520,6 +570,30 @@ describe('black and gold commerce UI', () => {
         const swatch = container.querySelector<HTMLElement>('[aria-label="Gold colour swatch"]');
         expect(swatch).not.toBeNull();
         expect(swatch?.style.backgroundColor).toBe('rgb(197, 160, 89)');
+        // Warehouse managers cannot read the catalogue, so the page must not depend on it.
+        expect(fetchMock.mock.calls.some(([request]) => String(request).includes('/admin/catalogue/products'))).toBe(false);
+    });
+
+    it('shows coupon redemptions and edits money fields in rupees', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        const container = await render(<AdminPage />, '/admin/promotions');
+
+        expect(container.textContent).toContain('WELCOME10');
+        expect(container.textContent).toContain('7 / 100 used');
+        expect(container.textContent).toContain('1 per customer');
+        expect(container.textContent).toContain('Expired');
+        const edit = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Edit');
+        await act(async () => {
+            edit?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+
+        expect(document.body.textContent).toContain('Edit WELCOME10');
+        expect(document.body.textContent).toContain('Discount Amount (₹)');
+        expect(document.body.querySelector<HTMLInputElement>('input[name="value"]')?.value).toBe('250');
+        expect(document.body.querySelector<HTMLInputElement>('input[name="minimumSubtotal"]')?.value).toBe('1000');
+        expect(document.body.querySelector<HTMLInputElement>('input[name="startsAt"]')?.value).toBe('2020-01-01');
+        expect(document.body.querySelector<HTMLInputElement>('input[name="endsAt"]')?.value).toBe('2020-01-31');
     });
 
     it('keeps redundant variant-name and dimensions fields out of Add Product', async () => {
@@ -717,6 +791,187 @@ describe('black and gold commerce UI', () => {
         expect(container.textContent).toContain('All changes from this file were rolled back');
     });
 
+    const catalogueRequests = (pattern: RegExp, method: string) =>
+        fetchMock.mock.calls
+            .filter(([request, init]) => pattern.test(String(request)) && init?.method === method)
+            .map(([request, init]) => ({ url: String(request), body: JSON.parse(String(init?.body || '{}')) as Record<string, unknown> }));
+
+    const setFieldValue = (element: HTMLInputElement | HTMLSelectElement | null, value: string) => {
+        if (!element) throw new Error('Field not found');
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')?.set?.call(element, value);
+        element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+    };
+
+    const fillNewProduct = async (container: HTMLElement, prices: { price: string; compareAt?: string }) => {
+        const addProduct = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Add Product'));
+        await act(async () => {
+            addProduct?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        const dialog = document.body.querySelector<HTMLFormElement>('form[aria-labelledby="product-dialog-title"]')!;
+        await act(async () => {
+            setFieldValue(dialog.querySelector<HTMLInputElement>('input[name="name"]'), 'Onyx Dinner Set');
+            setFieldValue(dialog.querySelector<HTMLSelectElement>('select[name="categoryId"]'), product.categoryId);
+            setFieldValue(dialog.querySelector<HTMLInputElement>('input[placeholder="GHC-SET-SAGE"]'), 'ONYX-SET');
+            setFieldValue(dialog.querySelector<HTMLInputElement>('input[placeholder="999.00"]'), prices.price);
+            if (prices.compareAt) setFieldValue(dialog.querySelector<HTMLInputElement>('input[placeholder="Optional"]'), prices.compareAt);
+        });
+        return dialog;
+    };
+
+    it('creates a published product as a draft and publishes it only after its options are saved', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        const container = await render(<AdminPage />, '/admin/catalogue');
+        const dialog = await fillNewProduct(container, { price: '999' });
+
+        await act(async () => {
+            dialog.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+            await new Promise((resolve) => window.setTimeout(resolve, 200));
+        });
+
+        const created = catalogueRequests(/\/admin\/catalogue\/products$/, 'POST');
+        expect(created).toHaveLength(1);
+        expect(created[0].body).toMatchObject({ name: 'Onyx Dinner Set', status: 'DRAFT' });
+        const variant = catalogueRequests(/\/admin\/catalogue\/products\/new-product-id\/variants$/, 'POST');
+        expect(variant[0].body).toMatchObject({ sku: 'ONYX-SET', pricePaise: 99_900, color: null });
+        const published = catalogueRequests(/\/admin\/catalogue\/products\/new-product-id$/, 'PATCH');
+        expect(published.at(-1)?.body).toEqual({ status: 'PUBLISHED' });
+        const callUrls = fetchMock.mock.calls.map(([request, init]) => `${init?.method || 'GET'} ${String(request)}`);
+        expect(callUrls.findIndex((call) => call.endsWith('/new-product-id/variants')))
+            .toBeLessThan(callUrls.findIndex((call) => call.startsWith('PATCH') && call.endsWith('/new-product-id')));
+        expect(container.textContent).toContain('New product created successfully.');
+    });
+
+    it('rejects a compare-at price below the price before saving anything', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        const container = await render(<AdminPage />, '/admin/catalogue');
+        const dialog = await fillNewProduct(container, { price: '999', compareAt: '899' });
+
+        await act(async () => {
+            dialog.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+            await new Promise((resolve) => window.setTimeout(resolve, 50));
+        });
+
+        expect(catalogueRequests(/\/admin\/catalogue\/products$/, 'POST')).toHaveLength(0);
+        expect(document.body.textContent).toContain('Compare-at price for option 1 cannot be lower than its price.');
+    });
+
+    it('matches an exported product by slug after a rename and clears a blank colour', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        const container = await render(<AdminPage />, '/admin/catalogue');
+        const rows = [
+            ['Renamed Serving Set', 'Serveware', 'PUBLISHED', '', '', '', '', '', '', 'GHC-NOIR-GOLD', '', '2499', '', '', '', '', product.slug],
+            ['Renamed Serving Set', 'Serveware', 'PUBLISHED', '', '', 'Onyx', '#111111', '', '', 'GHC-NOIR-ONYX', '', '2699', '', 'TRUE', '', '', product.slug],
+        ];
+        const csv = `${catalogueCsvHeaders.join(',')}\n${rows.map((row) => row.map((value) => `"${value}"`).join(',')).join('\n')}`;
+        const file = { name: 'renamed.csv', text: vi.fn().mockResolvedValue(csv) } as unknown as File;
+        const input = container.querySelector<HTMLInputElement>('input[type="file"][accept*=".csv"]');
+        Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+        await act(async () => {
+            input?.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise((resolve) => window.setTimeout(resolve, 300));
+        });
+
+        expect(catalogueRequests(/\/admin\/catalogue\/products$/, 'POST')).toHaveLength(0);
+        const productUpdate = catalogueRequests(new RegExp(`/admin/catalogue/products/${product.id}$`), 'PATCH');
+        expect(productUpdate[0].body).toMatchObject({ name: 'Renamed Serving Set', slug: product.slug });
+        const variantUpdate = catalogueRequests(new RegExp(`/admin/catalogue/variants/${product.variants[0].id}$`), 'PATCH');
+        expect(variantUpdate[0].body).toMatchObject({ sku: 'GHC-NOIR-GOLD', color: null, isActive: true });
+        expect(catalogueRequests(new RegExp(`/admin/catalogue/products/${product.id}/variants$`), 'POST')[0].body)
+            .toMatchObject({ sku: 'GHC-NOIR-ONYX', color: 'Onyx', colorHex: '#111111' });
+        expect(container.textContent).toContain('Bulk import finished');
+        // The page shows one page of products, so the import read the whole catalogue to match rows.
+        expect(fetchMock.mock.calls.some(([request]) => String(request).endsWith('/admin/catalogue/products/all'))).toBe(true);
+    });
+
+    it('searches, filters and pages the product list on the server', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        const container = await render(<AdminPage />, '/admin/catalogue');
+        const listRequests = () => fetchMock.mock.calls
+            .map(([request]) => String(request))
+            .filter((url) => url.includes('/admin/catalogue/products?'))
+            .map((url) => Object.fromEntries(new URL(url, 'http://localhost').searchParams));
+
+        expect(listRequests()).toEqual([{ page: '1', limit: '20' }]);
+        // The whole catalogue is only read for an import or export.
+        expect(fetchMock.mock.calls.some(([request]) => String(request).endsWith('/admin/catalogue/products/all'))).toBe(false);
+        expect(container.textContent).toContain('Showing 1–1 of 1');
+
+        const search = container.querySelector<HTMLInputElement>('input[aria-label="Search products"]');
+        await act(async () => {
+            for (const value of ['n', 'no', 'noi', 'noir']) setFieldValue(search, value);
+            await new Promise((resolve) => window.setTimeout(resolve, 100));
+        });
+        // Typing is debounced: nothing is sent until it pauses.
+        expect(listRequests()).toHaveLength(1);
+        await act(async () => {
+            await new Promise((resolve) => window.setTimeout(resolve, 350));
+        });
+        expect(listRequests()).toEqual([{ page: '1', limit: '20' }, { page: '1', limit: '20', q: 'noir' }]);
+
+        await act(async () => {
+            setFieldValue(container.querySelector<HTMLSelectElement>('select[aria-label="Filter by status"]'), 'DRAFT');
+            setFieldValue(container.querySelector<HTMLSelectElement>('select[aria-label="Products per page"]'), '50');
+            await new Promise((resolve) => window.setTimeout(resolve, 50));
+        });
+        expect(listRequests().at(-1)).toEqual({ page: '1', limit: '50', q: 'noir', status: 'DRAFT' });
+        expect(container.textContent).toContain('Noir Gold Serving Set');
+    });
+
+    const openFirstProductEditor = async (container: HTMLElement) => {
+        await act(async () => {
+            container.querySelector('button[title="Edit Product"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await new Promise((resolve) => window.setTimeout(resolve, 50));
+        });
+    };
+    const galleryOrder = () => Array.from(document.body.querySelectorAll('ol[aria-label="Product images in storefront order"] img'))
+        .map((image) => image.getAttribute('src'));
+    const clickMove = async (label: string) => {
+        await act(async () => {
+            document.body.querySelector(`button[aria-label="${label}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await new Promise((resolve) => window.setTimeout(resolve, 50));
+        });
+    };
+
+    it('moves an existing image earlier and saves the whole order in one request', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        const container = await render(<AdminPage />, '/admin/catalogue');
+        await openFirstProductEditor(container);
+
+        expect(galleryOrder()).toEqual(['/product.webp', '/sage.webp']);
+        expect(document.body.querySelector('button[aria-label="Move image 1 of 2 earlier"]')?.getAttribute('aria-disabled')).toBe('true');
+        await clickMove('Move image 2 of 2 earlier');
+
+        const orders = catalogueRequests(new RegExp(`/admin/catalogue/products/${product.id}/images/order$`), 'PUT');
+        expect(orders).toHaveLength(1);
+        expect(orders[0].body).toEqual({ imageIds: [product.images[1].id, product.images[0].id] });
+        expect(galleryOrder()).toEqual(['/sage.webp', '/product.webp']);
+        expect(document.body.textContent).toContain('Image moved to position 1 of 2.');
+        // The first image cannot move earlier; the last cannot move later.
+        expect(document.body.querySelector('button[aria-label="Move image 1 of 2 earlier"]')?.getAttribute('aria-disabled')).toBe('true');
+        expect(document.body.querySelector('button[aria-label="Move image 2 of 2 later"]')?.getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('puts the images back in their saved order when the new order is refused', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        mockImageOrderFailure = true;
+        const container = await render(<AdminPage />, '/admin/catalogue');
+        await openFirstProductEditor(container);
+
+        await clickMove('Move image 1 of 2 later');
+
+        expect(catalogueRequests(/\/images\/order$/, 'PUT')).toHaveLength(1);
+        expect(galleryOrder()).toEqual(['/product.webp', '/sage.webp']);
+        expect(document.body.textContent).toContain('Image order not saved');
+    });
+
     it('shows who changed which record and the before/after values', async () => {
         mockAuthenticated = true;
         mockRoles = ['ADMIN'];
@@ -748,6 +1003,251 @@ describe('black and gold commerce UI', () => {
         expect(ownAdminRole?.checked).toBe(true);
         expect(ownAdminRole?.disabled).toBe(true);
         expect(container.textContent).toContain('Your own admin access is protected.');
+    });
+
+    it('asks before removing every role from a team member', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        const container = await render(<AdminPage />, '/admin/users');
+        const editButtons = Array.from(container.querySelectorAll('button')).filter((button) => button.textContent === 'Edit access');
+        await act(async () => editButtons[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+        for (const checkbox of Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).filter((input) => input.checked)) {
+            await act(async () => checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+        }
+        const save = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Remove access…');
+        await act(async () => save?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+        expect(container.textContent).toContain('Remove all access for Sana Khan?');
+        expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+    });
+
+    it('confirms before suspending, reinstating or resetting a team member', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        const staffCalls: string[] = [];
+        vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+            if (/\/admin\/users\/[^/]+\/(suspend|reinstate|password-reset)$/.test(url) && init?.method === 'POST') {
+                staffCalls.push(url.split('/admin/users/')[1]);
+                return url.endsWith('password-reset') ? new Response(null, { status: 204 }) : json({});
+            }
+            if (url.endsWith('/admin/users') && (!init?.method || init.method === 'GET')) {
+                return json([
+                    { id: 'user-1', email: 'admin@example.com', fullName: 'Faheem Admin', roles: ['ADMIN'], createdAt: '2026-07-01T08:00:00.000Z', suspended: false, bannedUntil: null },
+                    { id: 'staff-1', email: 'sana@example.com', fullName: 'Sana Khan', roles: ['SUPPORT_AGENT'], createdAt: '2026-08-01T08:00:00.000Z', suspended: false, bannedUntil: null },
+                    { id: 'staff-2', email: 'ravi@example.com', fullName: 'Ravi Nair', roles: ['WAREHOUSE_MANAGER'], createdAt: '2026-08-02T08:00:00.000Z', suspended: true, bannedUntil: '2126-08-02T08:00:00.000Z' },
+                ]);
+            }
+            return fetchMock(input, init);
+        }));
+        const container = await render(<AdminPage />, '/admin/users');
+        const click = async (element: Element | undefined) => act(async () => element?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+        const button = (text: string) => Array.from(container.querySelectorAll('button')).find((item) => item.textContent === text);
+        const editButtons = () => Array.from(container.querySelectorAll('button')).filter((item) => item.textContent === 'Edit access' || item.textContent === 'Editing');
+
+        expect(Array.from(container.querySelectorAll('span')).filter((item) => item.textContent === 'Suspended')).toHaveLength(1);
+
+        // Your own account cannot be suspended.
+        await click(editButtons()[0]);
+        expect(button('Suspend account')).toBeUndefined();
+        expect(container.textContent).toContain('You cannot suspend your own account.');
+
+        await click(editButtons()[1]);
+        await click(button('Suspend account'));
+        expect(container.textContent).toContain('Suspend Sana Khan?');
+        expect(staffCalls).toEqual([]);
+        await click(button('Suspend account'));
+        expect(staffCalls).toEqual(['staff-1/suspend']);
+        expect(container.textContent).toContain('Sana Khan is suspended and has been signed out.');
+
+        await click(button('Send password reset'));
+        expect(container.textContent).toContain('Email a password reset link to sana@example.com?');
+        await click(button('Send reset email'));
+        expect(staffCalls).toEqual(['staff-1/suspend', 'staff-1/password-reset']);
+
+        await click(editButtons()[2]);
+        expect(button('Send password reset')?.disabled).toBe(true);
+        await click(button('Reinstate account'));
+        expect(container.textContent).toContain('Reinstate Ravi Nair?');
+        await click(button('Reinstate account'));
+        expect(staffCalls).toEqual(['staff-1/suspend', 'staff-1/password-reset', 'staff-2/reinstate']);
+    });
+
+    it('shows a not-found page for unknown admin paths instead of the overview', async () => {
+        mockAuthenticated = true;
+        mockRoles = ['SUPPORT_AGENT'];
+        const container = await render(<AdminPage />, '/admin/not-a-section');
+        expect(container.textContent).toContain('Page not found');
+        expect(container.textContent).not.toContain('Workspace / Overview');
+    });
+
+    it('keeps staff on a retry screen when the backend cannot be reached', async () => {
+        vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+            String(input).endsWith('/auth/session') ? json({ message: 'Service Unavailable' }, 503) : fetchMock(input, init)));
+        const container = await render(<AdminPage />, '/admin/orders');
+        expect(container.textContent).toContain('We can’t reach the store service');
+        expect(routerState.path).toBe('/admin/orders');
+    });
+
+    it('keeps the query string when sending signed-out staff to sign in', async () => {
+        await render(<AdminPage />, '/admin/orders?status=PAID');
+        expect(routerState.path).toBe('/admin/login?next=%2Fadmin%2Forders%3Fstatus%3DPAID');
+    });
+
+    it('tells staff their session expired when they are sent back to sign in', async () => {
+        const container = await render(<AdminLoginPage />, '/admin/login?next=%2Fadmin%2Forders&reason=expired');
+        expect(container.textContent).toContain('Your session expired');
+    });
+
+    it('offers only valid order actions for the staff role and shipment state', async () => {
+        const adminOrder = (shipments: unknown[]) => ({
+            id: '66666666-6666-4666-8666-666666666666',
+            orderNumber: 'GHC-ORDER-1',
+            status: 'PROCESSING',
+            currency: 'INR',
+            itemsSnapshot: [],
+            addressSnapshot: { recipientName: 'Asha', email: 'asha@example.com' },
+            subtotalPaise: 10_000,
+            discountPaise: 0,
+            shippingPaise: 0,
+            taxPaise: 0,
+            totalPaise: 10_000,
+            createdAt: '2026-10-01T08:00:00.000Z',
+            updatedAt: '2026-10-01T08:00:00.000Z',
+            payments: [],
+            shipments,
+            returns: [],
+        });
+        let detail = adminOrder([]);
+        const ordersFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+            if (url.includes('/admin/orders/66666666-6666-4666-8666-666666666666')) return json(detail);
+            if (url.includes('/admin/orders?')) return json([{ ...detail, itemCount: 0 }]);
+            return fetchMock(input, init);
+        });
+        vi.stubGlobal('fetch', ordersFetch);
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        await render(<AdminPage />, '/admin/orders');
+        const click = async (label: string) => {
+            const button = Array.from(document.body.querySelectorAll('button')).find((item) => item.textContent?.trim() === label);
+            expect(button, label).toBeDefined();
+            await act(async () => {
+                button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                await new Promise((resolve) => window.setTimeout(resolve, 20));
+            });
+        };
+
+        // Cancelling the shipment form never creates a shipment.
+        await click('View');
+        await click('Create shipment');
+        expect(document.body.textContent).toContain('Carrier (optional)');
+        await click('Cancel');
+        expect(ordersFetch.mock.calls.some(([request, init]) => String(request).includes('/shipments') && init?.method === 'POST')).toBe(false);
+        act(() => mountedRoot?.unmount());
+        document.body.innerHTML = '';
+
+        // A support agent changes no fulfilment state: no shipment, tracking, processing or cancel actions.
+        const hasButton = (label: string) => Array.from(document.body.querySelectorAll('button')).some((item) => item.textContent?.trim() === label);
+        detail = adminOrder([
+            { id: 'ship-1', orderId: detail.id, provider: 'manual', status: 'CREATED', createdAt: '', updatedAt: '', events: [], items: [] },
+        ]);
+        mockRoles = ['SUPPORT_AGENT'];
+        await render(<AdminPage />, '/admin/orders');
+        await click('View');
+        expect(document.body.textContent).toContain('GHC-ORDER-1');
+        for (const label of ['Create shipment', 'Add tracking update', 'Cancel order']) expect(hasButton(label), label).toBe(false);
+        act(() => mountedRoot?.unmount());
+        document.body.innerHTML = '';
+
+        detail = { ...detail, status: 'CONFIRMED', shipments: [] };
+        await render(<AdminPage />, '/admin/orders');
+        await click('View');
+        expect(hasButton('Start processing')).toBe(false);
+        act(() => mountedRoot?.unmount());
+        document.body.innerHTML = '';
+
+        // A warehouse manager tracks shipments, offered only the allowed next states, but cannot cancel.
+        detail = adminOrder([
+            { id: 'ship-1', orderId: detail.id, provider: 'manual', status: 'CREATED', createdAt: '', updatedAt: '', events: [], items: [] },
+        ]);
+        mockRoles = ['WAREHOUSE_MANAGER'];
+        await render(<AdminPage />, '/admin/orders');
+        await click('View');
+        expect(hasButton('Cancel order')).toBe(false);
+        await click('Add tracking update');
+        const options = Array.from(document.body.querySelectorAll('select option')).map((option) => option.textContent);
+        expect(options).toEqual(['Label Created', 'In Transit', 'Cancelled']);
+    });
+
+    it('lets an admin cancel a paid order with a reason after confirming the refund', async () => {
+        const orderId = '77777777-7777-4777-8777-777777777777';
+        let detail: Record<string, unknown> = {
+            id: orderId,
+            orderNumber: 'GHC-ORDER-2',
+            status: 'CONFIRMED',
+            currency: 'INR',
+            itemsSnapshot: [],
+            addressSnapshot: { recipientName: 'Asha', email: 'asha@example.com' },
+            subtotalPaise: 25_000,
+            discountPaise: 0,
+            shippingPaise: 0,
+            taxPaise: 0,
+            totalPaise: 25_000,
+            hdfcOrderId: 'hdfc-2',
+            createdAt: '2026-10-01T08:00:00.000Z',
+            updatedAt: '2026-10-01T08:00:00.000Z',
+            payments: [{ id: 'pay-2', status: 'CAPTURED', amountPaise: 25_000, currency: 'INR', method: 'UPI', refunds: [] }],
+            shipments: [],
+            returns: [],
+        };
+        const ordersFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+            if (url.endsWith(`/admin/orders/${orderId}/cancel`) && init?.method === 'POST') {
+                detail = { ...detail, status: 'CANCELLED' };
+                return json(detail);
+            }
+            if (url.includes(`/admin/orders/${orderId}`)) return json(detail);
+            if (url.includes('/admin/orders?')) return json([{ ...detail, itemCount: 0 }]);
+            return fetchMock(input, init);
+        });
+        vi.stubGlobal('fetch', ordersFetch);
+        mockAuthenticated = true;
+        mockRoles = ['ADMIN'];
+        await render(<AdminPage />, '/admin/orders');
+        const button = (label: string) => Array.from(document.body.querySelectorAll('button')).find((item) => item.textContent?.trim() === label);
+        const click = async (label: string) => {
+            expect(button(label), label).toBeDefined();
+            await act(async () => {
+                button(label)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                await new Promise((resolve) => window.setTimeout(resolve, 20));
+            });
+        };
+        const cancelCalls = () => ordersFetch.mock.calls.filter(([request, init]) => String(request).endsWith('/cancel') && init?.method === 'POST');
+
+        await click('View');
+        await click('Cancel order');
+        const dialog = document.body.querySelector('[role="alertdialog"]');
+        expect(dialog?.textContent).toContain('Cancel order GHC-ORDER-2?');
+        expect(dialog?.textContent).toMatch(/refunded\s*₹\s*250/);
+
+        // A reason is required before anything is sent.
+        await click('Cancel order and refund');
+        expect(document.body.textContent).toContain('Enter a reason');
+        expect(cancelCalls()).toHaveLength(0);
+
+        const reason = document.body.querySelector<HTMLTextAreaElement>('[role="alertdialog"] textarea')!;
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(reason, 'Customer asked to cancel');
+            reason.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await click('Cancel order and refund');
+        expect(cancelCalls()).toHaveLength(1);
+        expect(JSON.parse(String(cancelCalls()[0][1]?.body))).toEqual({ reason: 'Customer asked to cancel' });
+        // The dialog refreshes in place: the order is cancelled and no longer offers cancellation.
+        expect(document.body.textContent).toContain('Order cancelled and stock released.');
+        expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+        expect(button('Cancel order')).toBeUndefined();
     });
 
     it('escapes script-closing characters in product JSON-LD', () => {

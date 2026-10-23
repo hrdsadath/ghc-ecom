@@ -169,6 +169,19 @@ Railway is the preferred backend target for this repository.
 Add a Redis service to the same Railway project. Use its private generated
 `REDIS_URL`. Do not create a public Redis endpoint.
 
+### 4.2a Keep the API, Redis and the database in one region
+
+The database is Supabase `ap-south-1` (Mumbai). Every API request makes one or
+more database round trips, so the API must run close to it: `backend/railway.toml`
+pins the backend service to Railway's Singapore region
+(`asia-southeast1-eqsg3a`) through `multiRegionConfig`. A repository file cannot
+move other services, so in the Railway dashboard set the Redis service's region
+to the same Singapore region. API and Redis in different regions makes every
+cache read cross that distance.
+
+The Vercel frontend runs its server functions in Mumbai (`bom1`, set in
+`frontend/vercel.json`), next to the customers and the database.
+
 ### 4.3 Add backend variables
 
 Copy every required variable from `backend/.env.example` into Railway Variables.
@@ -189,7 +202,12 @@ API_PUBLIC_URL=https://api.example.com
 CSRF_SECRET=PASTE_A_SECURE_RANDOM_VALUE
 SESSION_REFRESH_TTL_SECONDS=2592000
 
-TRUST_PROXY_HOPS=1
+# Proxies in front of the API. With NEXT_PUBLIC_API_URL=/api/v1 (the default) the
+# browser goes Vercel /api rewrite -> Railway edge -> API, which is 2; with 1 the rate
+# limiter keys every shopper on Vercel's address and they all share one limit. Use 1
+# only if the browser calls the Railway domain directly. Confirm in the logs that
+# req.ip is the shopper's address after a change.
+TRUST_PROXY_HOPS=2
 ENABLE_SWAGGER=false
 
 DATABASE_URL=YOUR_SUPABASE_RUNTIME_CONNECTION

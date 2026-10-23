@@ -44,16 +44,19 @@ export class CreateVariantDto {
   @IsObject()
   attributes?: Record<string, unknown>;
 
+  /** null removes the colour (and its swatch) from an existing variant. */
   @IsOptional()
+  @ValidateIf((_object, value: unknown) => value !== null)
   @IsString()
   @IsNotEmpty()
   @MaxLength(80)
-  color?: string;
+  color?: string | null;
 
   @IsOptional()
+  @ValidateIf((_object, value: unknown) => value !== null)
   @IsString()
   @Matches(/^#[0-9A-Fa-f]{6}$/)
-  colorHex?: string;
+  colorHex?: string | null;
 
   @IsOptional()
   @ValidateIf((_object, value: unknown) => value !== null)

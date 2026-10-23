@@ -1,9 +1,11 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   AuthResponse,
   AuthTokenResponsePassword,
   createClient,
+  isAuthError,
+  isAuthRetryableFetchError,
   SupabaseClient,
   User,
 } from '@supabase/supabase-js';
@@ -13,6 +15,37 @@ interface RegisterInput {
   password: string;
   fullName: string;
 }
+
+/** Pages of 1000 scanned at most when looking an account up by email (Supabase has no email filter). */
+const EMAIL_LOOKUP_MAX_PAGES = 50;
+
+/** About 100 years: Supabase Auth's ban_duration takes a Go duration and has no "indefinite" value. */
+export const SUSPENSION_BAN_DURATION = '876000h';
+
+/** True while the account carries a Supabase ban that has not yet expired. */
+export const isBannedUser = (user: Pick<User, 'banned_until'>, now = Date.now()): boolean => {
+  if (!user.banned_until) return false;
+  const until = Date.parse(user.banned_until);
+  return Number.isFinite(until) && until > now;
+};
+
+/**
+ * True when Supabase Auth could not answer (network failure, timeout, rate limit or a 5xx), as
+ * opposed to rejecting the credentials. Callers must not treat these as "signed out".
+ */
+export const isTransientAuthError = (error: unknown): boolean => {
+  if (isAuthRetryableFetchError(error)) return true;
+  if (!isAuthError(error)) return false;
+  const status = error.status ?? 0;
+  return status === 0 || status === 429 || status >= 500;
+};
+
+/** True when Supabase refused to create an account because the email is already registered. */
+export const isEmailTakenError = (error: unknown): boolean =>
+  isAuthError(error) &&
+  (error.code === 'email_exists' ||
+    error.code === 'user_already_exists' ||
+    (error.status === 422 && /already/i.test(error.message)));
 
 @Injectable()
 export class SupabaseService {
@@ -86,10 +119,51 @@ export class SupabaseService {
     if (error) throw error;
   }
 
-  async listAdminUsers(): Promise<User[]> {
-    const { data, error } = await this.adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    if (error) throw error;
-    return data.users;
+  /**
+   * Bans the account so Supabase refuses its sign-ins and refresh tokens. Supabase Auth has no
+   * "forever" value, so a suspension is a ban long enough to outlive the account.
+   */
+  async suspendAdminUser(userId: string): Promise<User> {
+    return this.updateBan(userId, SUSPENSION_BAN_DURATION);
+  }
+
+  /** Lifts a ban set by suspendAdminUser ("none" clears banned_until). */
+  async reinstateAdminUser(userId: string): Promise<User> {
+    return this.updateBan(userId, 'none');
+  }
+
+  private async updateBan(userId: string, banDuration: string): Promise<User> {
+    const { data, error } = await this.adminClient.auth.admin.updateUserById(userId, {
+      ban_duration: banDuration,
+    });
+    if (error || !data.user) throw error || new Error('Supabase did not update the user');
+    return data.user;
+  }
+
+  /** Returns null when the account no longer exists. */
+  async getAdminUserById(userId: string): Promise<User | null> {
+    const { data, error } = await this.adminClient.auth.admin.getUserById(userId);
+    if (error) {
+      if (error.status === 404 || error.code === 'user_not_found') return null;
+      throw error;
+    }
+    return data.user;
+  }
+
+  /**
+   * Supabase Auth has no lookup by email, so this pages through accounts (1000 per page) and
+   * stops at EMAIL_LOOKUP_MAX_PAGES. Prefer a direct auth.users query where the database allows it.
+   */
+  async findAdminUserByEmail(email: string): Promise<User | null> {
+    const wanted = email.trim().toLowerCase();
+    for (let page = 1; page <= EMAIL_LOOKUP_MAX_PAGES; page += 1) {
+      const { data, error } = await this.adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error) throw error;
+      const match = data.users.find((user) => user.email?.toLowerCase() === wanted);
+      if (match) return match;
+      if (data.users.length < 1000) return null;
+    }
+    return null;
   }
 
   async resetPassword(accessToken: string, refreshToken: string, password: string): Promise<void> {
@@ -133,6 +207,10 @@ export class SupabaseService {
   async verifyAccessToken(accessToken: string): Promise<User> {
     const { data, error } = await this.publicClient.auth.getClaims(accessToken);
     const claims = data?.claims;
+    if (error && isTransientAuthError(error)) {
+      // Signing keys could not be fetched: the token may still be valid, so do not sign anyone out.
+      throw new ServiceUnavailableException('Sign-in service is temporarily unavailable');
+    }
     if (error || !claims?.sub) {
       throw new UnauthorizedException('Invalid or expired access token');
     }

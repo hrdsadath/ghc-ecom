@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -9,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AppRole, Refund, ReturnRequest, Shipment } from '@prisma/client';
+import { AuthService } from '../auth/auth.service';
 import { AuthenticatedUser } from '../auth/authenticated-user';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -19,7 +21,7 @@ import { CreateReturnDto } from './dto/create-return.dto';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
 import { ReviewReturnDto } from './dto/review-return.dto';
 import { TrackingEventDto } from './dto/tracking-event.dto';
-import { FulfilmentService, ShipmentDetail } from './fulfilment.service';
+import { FulfilmentService, ReviewedReturn, ShipmentDetail } from './fulfilment.service';
 import { RefundReconciliationResult, RefundsService } from './refunds.service';
 
 @Controller()
@@ -28,6 +30,7 @@ export class FulfilmentController {
   constructor(
     private readonly fulfilment: FulfilmentService,
     private readonly refunds: RefundsService,
+    private readonly auth: AuthService,
   ) {}
 
   @Get('orders/:orderId/shipments')
@@ -58,9 +61,10 @@ export class FulfilmentController {
     return this.fulfilment.createShipment(actor.id, orderId, input);
   }
 
+  /** Tracking moves the order to shipped/delivered, so it is fulfilment work, not support. */
   @Post('admin/shipments/:shipmentId/events')
   @UseGuards(RolesGuard)
-  @Roles(AppRole.ADMIN, AppRole.WAREHOUSE_MANAGER, AppRole.SUPPORT_AGENT)
+  @Roles(AppRole.ADMIN, AppRole.WAREHOUSE_MANAGER)
   addTracking(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('shipmentId', ParseUUIDPipe) shipmentId: string,
@@ -72,11 +76,18 @@ export class FulfilmentController {
   @Patch('admin/returns/:returnId')
   @UseGuards(RolesGuard)
   @Roles(AppRole.ADMIN, AppRole.SUPPORT_AGENT, AppRole.WAREHOUSE_MANAGER)
-  reviewReturn(
+  async reviewReturn(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('returnId', ParseUUIDPipe) returnId: string,
     @Body() input: ReviewReturnDto,
-  ): Promise<ReturnRequest> {
+  ): Promise<ReviewedReturn> {
+    if (input.restock) {
+      // Restocking changes inventory, which only inventory roles may do.
+      const roles = await this.auth.roles(actor.id);
+      if (!roles.some((role) => role === AppRole.ADMIN || role === AppRole.WAREHOUSE_MANAGER)) {
+        throw new ForbiddenException('Only admins and warehouse managers can restock returns');
+      }
+    }
     return this.fulfilment.reviewReturn(actor.id, returnId, input);
   }
 

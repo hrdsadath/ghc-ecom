@@ -22,7 +22,7 @@ export const InfoPage = ({ kind = 'about' }: { kind?: InfoPageKind }) => {
 
     const tabs: Array<{ id: InfoPageKind; label: string; href: string }> = [
         { id: 'about', label: 'About', href: '/about' },
-        { id: 'shipping', label: 'Orders & returns', href: '/shipping-returns' },
+        { id: 'shipping', label: 'Shipping', href: '/shipping-returns' },
         { id: 'faq', label: 'FAQ', href: '/faq' },
         { id: 'contact', label: 'Contact', href: '/contact' },
         { id: 'privacy', label: 'Privacy', href: '/privacy' },
@@ -84,7 +84,33 @@ export const InfoPage = ({ kind = 'about' }: { kind?: InfoPageKind }) => {
                         {page.sections.map((section) => (
                             <section key={section.title} className="py-7">
                                 <h2 className="font-display text-2xl font-semibold text-cream">{section.title}</h2>
-                                <p className="mt-3 max-w-2xl text-sm leading-7 text-cream/70">{section.body}</p>
+                                {section.table && (
+                                    <div className="mt-4 max-w-2xl overflow-x-auto">
+                                        <table className="w-full border-collapse text-left text-sm">
+                                            <thead>
+                                                <tr className="border-b border-line text-cream">
+                                                    {section.table.headers.map((header) => <th key={header} scope="col" className="py-2 pr-4 font-semibold">{header}</th>)}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="text-cream/70">
+                                                {section.table.rows.map((row) => (
+                                                    <tr key={row.join('|')} className="border-b border-line">
+                                                        {row.map((cell) => <td key={cell} className="py-2 pr-4">{cell}</td>)}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                                {section.body && <p className="mt-3 max-w-2xl text-sm leading-7 text-cream/70">{section.body}</p>}
+                                {section.list && (
+                                    React.createElement(
+                                        section.list.ordered ? 'ol' : 'ul',
+                                        { className: `mt-3 max-w-2xl space-y-2 pl-5 text-sm leading-7 text-cream/70 ${section.list.ordered ? 'list-decimal' : 'list-disc'}` },
+                                        section.list.items.map((item) => <li key={item}>{item}</li>),
+                                    )
+                                )}
+                                {section.note && <p className="mt-4 max-w-2xl border-l-2 border-gold-400 pl-4 text-sm leading-7 text-cream/70"><span className="font-semibold text-cream">Note:</span> {section.note}</p>}
                             </section>
                         ))}
                     </div>

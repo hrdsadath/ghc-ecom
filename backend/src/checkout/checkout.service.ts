@@ -4,14 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  CheckoutQuote,
-  Coupon,
-  DiscountType,
-  OrderStatus,
-  Prisma,
-  QuoteStatus,
-} from '@prisma/client';
+import { Address, CheckoutQuote, Coupon, DiscountType, Prisma, QuoteStatus } from '@prisma/client';
 import { CartService, CartWithItems } from '../cart/cart.service';
 import { PrismaService } from '../database/prisma.service';
 import { CreateQuoteDto } from './dto/create-quote.dto';
@@ -31,12 +24,20 @@ export class CheckoutService {
     authorization?: string,
     guestToken?: string,
   ): Promise<CheckoutQuote> {
-    const cart = await this.carts.requireAccessibleCart(input.cartId, authorization, guestToken);
+    // A signed-in cart belongs to the token's user, so the saved address can be read
+    // alongside the cart instead of after it.
+    const userId = await this.carts.optionalUserId(authorization);
+    const [cart, savedAddress] = await Promise.all([
+      this.carts.requireAccessibleCart(input.cartId, authorization, guestToken),
+      userId && input.addressId && !input.shippingAddress
+        ? this.prisma.address.findFirst({ where: { id: input.addressId, userId } })
+        : Promise.resolve(null),
+    ]);
     if (cart.items.length === 0) {
       throw new BadRequestException('Cart is empty');
     }
 
-    const addressSnapshot = await this.addressSnapshot(cart, input);
+    const addressSnapshot = this.addressSnapshot(cart, input, savedAddress);
     const subtotalPaise = cart.items.reduce(
       (sum, item) => sum + item.variant.pricePaise * item.quantity,
       0,
@@ -45,54 +46,83 @@ export class CheckoutService {
     const itemsSnapshot = this.itemsSnapshot(cart);
 
     try {
-      return await this.prisma.$transaction(async (transaction) => {
-        await transaction.$executeRaw`select pg_advisory_xact_lock(
-          hashtextextended(${cart.id}::text, 0)
-        )`;
-        const pending = await transaction.order.findFirst({
-          where: {
-            cartId: cart.id,
-            status: OrderStatus.PAYMENT_PENDING,
-            paymentExpiresAt: { gt: new Date() },
-            quote: { status: QuoteStatus.ACTIVE, expiresAt: { gt: new Date() } },
-          },
-          include: { quote: true },
-          orderBy: { createdAt: 'desc' },
-        });
-        if (pending) return pending.quote;
-        await transaction.checkoutQuote.updateMany({
-          where: { cartId: cart.id, status: QuoteStatus.ACTIVE },
-          data: { status: QuoteStatus.EXPIRED },
-        });
-        await transaction.$executeRaw`select public.reserve_cart_inventory(
-          ${cart.id}::uuid,
-          ${expiresAt}::timestamptz
-        )`;
-        const coupon = input.couponCode
-          ? await this.validateCoupon(input.couponCode, subtotalPaise, cart.userId, transaction)
-          : null;
-        const discountPaise = this.discount(coupon, subtotalPaise);
-        const taxablePaise = subtotalPaise - discountPaise;
-        // Published catalogue prices are final customer prices and delivery is free.
-        const shippingPaise = 0;
-        const taxPaise = 0;
-        const totalPaise = taxablePaise + shippingPaise + taxPaise;
-        return transaction.checkoutQuote.create({
-          data: {
-            cartId: cart.id,
-            userId: cart.userId,
-            couponId: coupon?.id,
-            itemsSnapshot,
-            addressSnapshot,
-            subtotalPaise,
-            discountPaise,
-            shippingPaise,
-            taxPaise,
-            totalPaise,
-            expiresAt,
-          },
-        });
-      });
+      return await this.prisma.$transaction(
+        async (transaction) => {
+          // The cart lock (and the coupon lock, always taken after it) come first in their own
+          // statement, so the next statement's snapshot sees whatever the previous holder of
+          // the lock committed.
+          const couponLock = input.couponCode ? `coupon:${input.couponCode.toUpperCase()}` : null;
+          await transaction.$executeRaw`select
+            pg_advisory_xact_lock(hashtextextended(${cart.id}::text, 0)),
+            case when ${couponLock}::text is not null
+              then pg_advisory_xact_lock(hashtextextended(${couponLock}::text, 0))
+            end`;
+          // One round trip: reuse the quote behind an unexpired pending payment, or else
+          // expire the cart's active quotes and reserve its stock.
+          const [prepared] = await transaction.$queryRaw<{ pendingQuoteId: string | null }[]>`
+            with pending as materialized (
+              select payment_order.quote_id
+              from public.orders as payment_order
+              join public.checkout_quotes as quote on quote.id = payment_order.quote_id
+              where payment_order.cart_id = ${cart.id}::uuid
+                and payment_order.status = 'payment_pending'
+                and payment_order.payment_expires_at > now()
+                and quote.status = 'active'
+                and quote.expires_at > now()
+              order by payment_order.created_at desc
+              limit 1
+            ),
+            expired as (
+              update public.checkout_quotes
+              set status = 'expired'
+              where cart_id = ${cart.id}::uuid
+                and status = 'active'
+                and not exists (select 1 from pending)
+              returning id
+            ),
+            reserved as materialized (
+              select public.reserve_cart_inventory(${cart.id}::uuid, ${expiresAt}::timestamptz)
+              where not exists (select 1 from pending)
+            )
+            select
+              (select quote_id from pending) as "pendingQuoteId",
+              (select count(*) from expired)::integer as expired,
+              (select count(*) from reserved)::integer as reserved
+          `;
+          if (prepared?.pendingQuoteId) {
+            return transaction.checkoutQuote.findUniqueOrThrow({
+              where: { id: prepared.pendingQuoteId },
+            });
+          }
+          const coupon = input.couponCode
+            ? await this.validateCoupon(input.couponCode, subtotalPaise, cart.userId, transaction)
+            : null;
+          const discountPaise = this.discount(coupon, subtotalPaise);
+          const taxablePaise = subtotalPaise - discountPaise;
+          // Published catalogue prices are final customer prices and delivery is free.
+          const shippingPaise = 0;
+          const taxPaise = 0;
+          const totalPaise = taxablePaise + shippingPaise + taxPaise;
+          return transaction.checkoutQuote.create({
+            data: {
+              cartId: cart.id,
+              userId: cart.userId,
+              couponId: coupon?.id,
+              itemsSnapshot,
+              addressSnapshot,
+              subtotalPaise,
+              discountPaise,
+              shippingPaise,
+              taxPaise,
+              totalPaise,
+              expiresAt,
+            },
+          });
+          // Each statement is a round trip to the database, and a coupon adds several more;
+          // Prisma's 5 s default can expire mid-quote on a slow link (as with HDFC intents).
+        },
+        { timeout: 20_000 },
+      );
     } catch (error) {
       if (error instanceof Error && /insufficient inventory|cart is empty/i.test(error.message)) {
         throw new ConflictException('Requested inventory is unavailable');
@@ -101,18 +131,16 @@ export class CheckoutService {
     }
   }
 
-  private async addressSnapshot(
+  private addressSnapshot(
     cart: CartWithItems,
     input: CreateQuoteDto,
-  ): Promise<Prisma.InputJsonObject> {
+    address: Address | null,
+  ): Prisma.InputJsonObject {
     if (cart.userId) {
       if (!input.addressId || input.shippingAddress) {
         throw new BadRequestException('Authenticated checkout requires addressId only');
       }
-      const address = await this.prisma.address.findFirst({
-        where: { id: input.addressId, userId: cart.userId },
-      });
-      if (!address) {
+      if (!address || address.userId !== cart.userId) {
         throw new NotFoundException('Address not found');
       }
       return {
@@ -213,20 +241,16 @@ export class CheckoutService {
       .join(' · ');
   }
 
+  /** Expects the caller's transaction to hold the `coupon:<CODE>` advisory lock. */
   private async validateCoupon(
     code: string,
     subtotalPaise: number,
     userId: string | null,
-    client: Pick<
-      Prisma.TransactionClient,
-      '$executeRaw' | 'coupon' | 'couponRedemption' | 'checkoutQuote'
-    > = this.prisma,
+    client: Pick<Prisma.TransactionClient, 'coupon' | 'couponRedemption' | 'checkoutQuote'> = this
+      .prisma,
   ): Promise<Coupon> {
     const now = new Date();
     const normalizedCode = code.toUpperCase();
-    await client.$executeRaw`select pg_advisory_xact_lock(
-      hashtextextended(${'coupon:' + normalizedCode}::text, 0)
-    )`;
     const coupon = await client.coupon.findFirst({
       where: {
         code: normalizedCode,

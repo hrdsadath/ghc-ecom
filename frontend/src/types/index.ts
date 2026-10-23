@@ -82,6 +82,8 @@ export interface AuthResult {
     user: SupabaseUser | null;
     csrfToken?: string;
     roles: AppRole[];
+    /** GET /auth/session: the browser held a session that could no longer be refreshed. */
+    expired?: boolean;
 }
 
 export interface CartItem {
@@ -173,6 +175,7 @@ export interface OrderRefund {
     currency: string;
     status: string;
     reason?: string | null;
+    returnRequestId?: string | null;
     processedAt?: string | null;
     createdAt: string;
 }
@@ -208,6 +211,32 @@ export interface Order {
     invoice?: { id: string } | null;
     shipments?: Shipment[];
     returns?: ReturnRequest[];
+    /** Admin list rows only: line count instead of the full items snapshot. */
+    itemCount?: number;
+}
+
+/** GET /admin/orders/revenue: IST calendar days, captured payments minus processed refunds. */
+export interface DailyRevenue {
+    date: string;
+    capturedPaise: number;
+    refundedPaise: number;
+    netPaise: number;
+    capturedPayments: number;
+    processedRefunds: number;
+}
+
+export interface RevenueReport {
+    timezone: string;
+    days: DailyRevenue[];
+    totals: Omit<DailyRevenue, 'date'>;
+}
+
+export interface RefundReconciliation {
+    inspected: number;
+    processed: number;
+    pending: number;
+    failed: number;
+    errors: number;
 }
 
 export interface ReturnRequest {
@@ -261,6 +290,35 @@ export interface InventoryLevel {
     lowStockThreshold: number;
 }
 
+/** GET /admin/inventory/levels row: the level plus display fields (no catalogue access needed). */
+export interface InventoryLevelView extends InventoryLevel {
+    sku: string;
+    alias: string | null;
+    productId: string;
+    productName: string;
+    color: string | null;
+    colorHex: string | null;
+    thumbnailUrl: string | null;
+    variantIsActive: boolean;
+    warehouseCode: string;
+    warehouseName: string;
+    warehouseIsActive: boolean;
+}
+
+export interface BulkInventoryRowInput {
+    warehouseId: string;
+    variantId: string;
+    onHand: number;
+    lowStockThreshold: number;
+    expectedOnHand?: number;
+}
+
+export interface BulkInventoryResult {
+    updated: number;
+    unchanged: number;
+    movements: number;
+}
+
 export interface OperationsSnapshot {
     databaseHealthy: boolean;
     apiServerErrorsTotal: number;
@@ -286,6 +344,8 @@ export interface Coupon {
     endsAt: string;
     isActive: boolean;
     createdAt: string;
+    /** Completed orders that used this coupon (admin list only). */
+    redemptionCount?: number;
 }
 
 export interface CreateCouponInput {
@@ -314,6 +374,23 @@ export interface AuditLog {
     createdAt: string;
 }
 
+export interface AuditLogPage {
+    items: AuditLog[];
+    /** Pass as `cursor` to load the next (older) page; null on the last page. */
+    nextCursor: string | null;
+}
+
+export interface AuditLogFilters {
+    limit?: number;
+    cursor?: string;
+    actorId?: string;
+    entityType?: string;
+    action?: string;
+    /** ISO timestamps. */
+    from?: string;
+    to?: string;
+}
+
 export interface Warehouse {
     id: string;
     code: string;
@@ -327,6 +404,9 @@ export interface StaffUser {
     fullName: string | null;
     roles: Array<'ADMIN' | 'CATALOGUE_MANAGER' | 'WAREHOUSE_MANAGER' | 'SUPPORT_AGENT'>;
     createdAt: string;
+    /** True while the account is suspended (banned in Supabase Auth). */
+    suspended?: boolean;
+    bannedUntil?: string | null;
 }
 
 export interface CreatedStaffUser {

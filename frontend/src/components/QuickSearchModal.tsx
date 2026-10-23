@@ -78,6 +78,7 @@ const QuickSearchModal: React.FC<QuickSearchModalProps> = ({ isOpen, onClose }) 
                         name="search"
                         aria-label="Search products"
                         autoComplete="off"
+                        maxLength={100}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Search dinner sets, tea sets, canisters..."
@@ -128,7 +129,7 @@ const QuickSearchModal: React.FC<QuickSearchModalProps> = ({ isOpen, onClose }) 
                                             )}
                                             <div>
                                                 <h4 className="text-sm text-cream font-medium group-hover:text-gold-300 transition">{product.name}</h4>
-                                                <p className="text-xs text-cream/40 line-clamp-1">{product.description}</p>
+                                                <p className="text-xs text-cream/40 line-clamp-1">{product.shortDescription}</p>
                                             </div>
                                         </div>
                                         {variant && (

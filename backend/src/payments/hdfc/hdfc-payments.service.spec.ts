@@ -1,6 +1,6 @@
 import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { Order, OrderStatus, PaymentStatus, QuoteStatus } from '@prisma/client';
-import { CartService } from '../../cart/cart.service';
+import { CartStatus, Order, OrderStatus, PaymentStatus, Prisma, QuoteStatus } from '@prisma/client';
+import { CartService, orderQuoteCartSelect } from '../../cart/cart.service';
 import { PrismaService } from '../../database/prisma.service';
 import { HdfcGatewayService, HdfcOrderStatus } from './hdfc-gateway.service';
 import { HdfcPaymentsService } from './hdfc-payments.service';
@@ -50,6 +50,16 @@ describe('HdfcPaymentsService', () => {
     createdAt: new Date(),
     updatedAt: new Date(),
   } as Order;
+  const ownerCart = {
+    userId: null,
+    guestTokenHash: 'hash',
+    status: CartStatus.ACTIVE,
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+  const orderWithQuote = {
+    ...pendingOrder,
+    quote: { cartId: pendingOrder.cartId, cart: ownerCart },
+  };
   const charged: HdfcOrderStatus = {
     orderId: pendingOrder.hdfcOrderId!,
     status: 'CHARGED',
@@ -65,7 +75,7 @@ describe('HdfcPaymentsService', () => {
 
   let prisma: {
     checkoutQuote: { findUnique: jest.Mock };
-    order: { findUnique: jest.Mock; findMany: jest.Mock };
+    order: { findUnique: jest.Mock; findMany: jest.Mock; create: jest.Mock };
     $transaction: jest.Mock;
   };
   let transaction: {
@@ -73,7 +83,7 @@ describe('HdfcPaymentsService', () => {
     order: { findUnique: jest.Mock; create: jest.Mock };
     payment: { findUnique: jest.Mock; upsert: jest.Mock };
   };
-  let carts: { requireAccessibleCart: jest.Mock; requireOwnedCart: jest.Mock };
+  let carts: { assertCartOwner: jest.Mock };
   let gateway: { isEnabled: jest.Mock; createSession: jest.Mock; getOrderStatus: jest.Mock };
   let service: HdfcPaymentsService;
 
@@ -84,19 +94,19 @@ describe('HdfcPaymentsService', () => {
       payment: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
     };
     prisma = {
-      checkoutQuote: { findUnique: jest.fn().mockResolvedValue(quote) },
+      checkoutQuote: {
+        findUnique: jest.fn().mockResolvedValue({ ...quote, cart: ownerCart, order: null }),
+      },
       order: {
         findUnique: jest.fn().mockResolvedValue(pendingOrder),
         findMany: jest.fn().mockResolvedValue([pendingOrder]),
+        create: jest.fn(),
       },
       $transaction: jest.fn((callback: (tx: typeof transaction) => unknown) =>
         callback(transaction),
       ),
     };
-    carts = {
-      requireAccessibleCart: jest.fn().mockResolvedValue(undefined),
-      requireOwnedCart: jest.fn().mockResolvedValue(undefined),
-    };
+    carts = { assertCartOwner: jest.fn().mockResolvedValue(undefined) };
     gateway = {
       isEnabled: jest.fn().mockReturnValue(true),
       createSession: jest.fn().mockResolvedValue({
@@ -117,16 +127,15 @@ describe('HdfcPaymentsService', () => {
 
   describe('createIntent', () => {
     it('creates an HDFC order and returns the hosted payment page link', async () => {
-      transaction.order.create.mockImplementation(({ data }) => ({ ...pendingOrder, ...data }));
+      prisma.order.create.mockImplementation(({ data }) => ({ ...pendingOrder, ...data }));
 
       const intent = await service.createIntent({ quoteId: quote.id }, undefined, 'guest-token');
 
-      expect(carts.requireAccessibleCart).toHaveBeenCalledWith(
-        quote.cartId,
-        undefined,
-        'guest-token',
-      );
-      const { data } = transaction.order.create.mock.calls[0][0];
+      expect(carts.assertCartOwner).toHaveBeenCalledWith(ownerCart, undefined, 'guest-token', true);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      const { data } = prisma.order.create.mock.calls[0][0];
+      expect(data).not.toHaveProperty('cart');
+      expect(data).not.toHaveProperty('order');
       expect(data.hdfcOrderId).toMatch(/^[A-Z0-9]{1,20}$/);
       expect(gateway.createSession).toHaveBeenCalledWith(
         expect.objectContaining({ hdfcOrderId: data.hdfcOrderId }),
@@ -147,16 +156,48 @@ describe('HdfcPaymentsService', () => {
     });
 
     it('reuses the HDFC order already created for the quote', async () => {
-      transaction.order.findUnique.mockResolvedValue(pendingOrder);
+      prisma.checkoutQuote.findUnique.mockResolvedValue({
+        ...quote,
+        cart: ownerCart,
+        order: pendingOrder,
+      });
 
       const intent = await service.createIntent({ quoteId: quote.id });
 
-      expect(transaction.order.create).not.toHaveBeenCalled();
+      expect(prisma.order.create).not.toHaveBeenCalled();
       expect(intent.hdfcOrderId).toBe(pendingOrder.hdfcOrderId);
     });
 
+    it('reuses the order a concurrent request created for the same quote', async () => {
+      prisma.order.create.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+        }),
+      );
+      prisma.order.findUnique.mockResolvedValue(pendingOrder);
+
+      const intent = await service.createIntent({ quoteId: quote.id });
+
+      expect(prisma.order.findUnique).toHaveBeenCalledWith({ where: { quoteId: quote.id } });
+      expect(intent.hdfcOrderId).toBe(pendingOrder.hdfcOrderId);
+    });
+
+    it('refuses a quote whose cart belongs to someone else', async () => {
+      carts.assertCartOwner.mockRejectedValue(new Error('Cart access denied'));
+
+      await expect(service.createIntent({ quoteId: quote.id })).rejects.toThrow(
+        'Cart access denied',
+      );
+      expect(prisma.order.create).not.toHaveBeenCalled();
+    });
+
     it('refuses a quote that belongs to a legacy Razorpay order', async () => {
-      transaction.order.findUnique.mockResolvedValue({ ...pendingOrder, hdfcOrderId: null });
+      prisma.checkoutQuote.findUnique.mockResolvedValue({
+        ...quote,
+        cart: ownerCart,
+        order: { ...pendingOrder, hdfcOrderId: null },
+      });
 
       await expect(service.createIntent({ quoteId: quote.id })).rejects.toBeInstanceOf(
         ConflictException,
@@ -165,9 +206,10 @@ describe('HdfcPaymentsService', () => {
     });
 
     it('does not reopen payment for an order that is no longer pending', async () => {
-      transaction.order.findUnique.mockResolvedValue({
-        ...pendingOrder,
-        status: OrderStatus.PAYMENT_FAILED,
+      prisma.checkoutQuote.findUnique.mockResolvedValue({
+        ...quote,
+        cart: ownerCart,
+        order: { ...pendingOrder, status: OrderStatus.PAYMENT_FAILED },
       });
 
       await expect(service.createIntent({ quoteId: quote.id })).rejects.toBeInstanceOf(
@@ -187,7 +229,7 @@ describe('HdfcPaymentsService', () => {
   describe('resolveStatus', () => {
     it('confirms a CHARGED order found by the SmartGateway order id', async () => {
       prisma.order.findUnique
-        .mockResolvedValueOnce(pendingOrder)
+        .mockResolvedValueOnce(orderWithQuote)
         .mockResolvedValueOnce({ ...pendingOrder, status: OrderStatus.CONFIRMED });
 
       const order = await service.resolveStatus(
@@ -198,12 +240,10 @@ describe('HdfcPaymentsService', () => {
 
       expect(prisma.order.findUnique).toHaveBeenNthCalledWith(1, {
         where: { hdfcOrderId: pendingOrder.hdfcOrderId },
+        include: { quote: { select: orderQuoteCartSelect } },
       });
-      expect(carts.requireOwnedCart).toHaveBeenCalledWith(
-        pendingOrder.cartId,
-        undefined,
-        'guest-token',
-      );
+      expect(carts.assertCartOwner).toHaveBeenCalledWith(ownerCart, undefined, 'guest-token');
+      expect(gateway.getOrderStatus).toHaveBeenCalledWith(pendingOrder);
       expect(transaction.payment.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { hdfcTransactionId: 'txn-uuid-1' },
@@ -219,6 +259,7 @@ describe('HdfcPaymentsService', () => {
     });
 
     it('refuses to confirm when the charged amount differs', async () => {
+      prisma.order.findUnique.mockResolvedValueOnce(orderWithQuote);
       gateway.getOrderStatus.mockResolvedValue({ ...charged, amountPaise: 100 });
 
       await expect(service.resolveStatus({ orderId: pendingOrder.id })).rejects.toBeInstanceOf(
@@ -228,6 +269,7 @@ describe('HdfcPaymentsService', () => {
     });
 
     it('refuses a status response for a different gateway order', async () => {
+      prisma.order.findUnique.mockResolvedValueOnce(orderWithQuote);
       gateway.getOrderStatus.mockResolvedValue({ ...charged, orderId: 'GHCOTHER' });
 
       await expect(service.resolveStatus({ orderId: pendingOrder.id })).rejects.toBeInstanceOf(
@@ -236,6 +278,7 @@ describe('HdfcPaymentsService', () => {
     });
 
     it('fails the order on an explicit decline', async () => {
+      prisma.order.findUnique.mockResolvedValueOnce(orderWithQuote);
       gateway.getOrderStatus.mockResolvedValue({
         ...charged,
         status: 'AUTHORIZATION_FAILED',
@@ -253,6 +296,7 @@ describe('HdfcPaymentsService', () => {
     });
 
     it('leaves a non-terminal order pending inside the payment window', async () => {
+      prisma.order.findUnique.mockResolvedValueOnce(orderWithQuote);
       gateway.getOrderStatus.mockResolvedValue({
         ...charged,
         status: 'PENDING_VBV',
@@ -266,6 +310,7 @@ describe('HdfcPaymentsService', () => {
     });
 
     it('fails an order the customer left without attempting a payment (NEW)', async () => {
+      prisma.order.findUnique.mockResolvedValueOnce(orderWithQuote);
       gateway.getOrderStatus.mockResolvedValue({
         ...charged,
         status: 'NEW',
@@ -278,8 +323,22 @@ describe('HdfcPaymentsService', () => {
       expect(transaction.$executeRaw).toHaveBeenCalledTimes(1);
     });
 
+    it('denies an order whose quote points at a different cart', async () => {
+      prisma.order.findUnique.mockResolvedValueOnce({
+        ...orderWithQuote,
+        quote: { cartId: 'another-cart', cart: ownerCart },
+      });
+      carts.assertCartOwner.mockRejectedValue(new Error('Cart access denied'));
+
+      await expect(service.resolveStatus({ orderId: pendingOrder.id })).rejects.toThrow(
+        'Cart access denied',
+      );
+      expect(carts.assertCartOwner).toHaveBeenCalledWith(null, undefined, undefined);
+      expect(gateway.getOrderStatus).not.toHaveBeenCalled();
+    });
+
     it('does not expose legacy Razorpay orders', async () => {
-      prisma.order.findUnique.mockResolvedValue({ ...pendingOrder, hdfcOrderId: null });
+      prisma.order.findUnique.mockResolvedValue({ ...orderWithQuote, hdfcOrderId: null });
 
       await expect(service.resolveStatus({ orderId: pendingOrder.id })).rejects.toBeInstanceOf(
         NotFoundException,

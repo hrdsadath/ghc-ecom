@@ -61,6 +61,7 @@ describe('catalogue CSV', () => {
             'is_active',
             'option_google_drive_image_links',
             'shared_google_drive_image_links',
+            'product_slug',
         ]);
     });
 
@@ -82,6 +83,45 @@ describe('catalogue CSV', () => {
             compare_at_price_rupees: '1499',
             is_active: 'TRUE',
         });
+    });
+
+    it('exports the product slug so a renamed product still matches on re-import', () => {
+        const [row] = parseCatalogueCsv(catalogueCsvExport([product]).replace('Noir, Gold Set', 'Renamed Set'));
+
+        expect(row).toMatchObject({ product_name: 'Renamed Set', product_slug: 'noir-gold-set', explicit_slug: true });
+    });
+
+    it('falls back to a slug from the name for files without a product_slug column', () => {
+        const [row] = parseCatalogueCsv('product_name,category_name,status,sku,price_rupees\nOld File Cup,Cups,DRAFT,OLD-CUP,499');
+
+        expect(row).toMatchObject({ product_slug: 'old-file-cup', explicit_slug: false });
+    });
+
+    it('adds a new blank-slug row to the exported product with the same name', () => {
+        const exported = catalogueCsvExport([product]);
+        const extraRow = ['Noir, Gold Set', 'Tea Sets', 'PUBLISHED', 'Quoted ""description""', 'Stoneware', 'Sage', '', '', '', 'GHC-NOIR-SAGE', '', '999', '', 'TRUE', '', '', '']
+            .map((value) => `"${value}"`)
+            .join(',');
+        const rows = parseCatalogueCsv(`${exported}${extraRow}\r\n`);
+
+        expect(rows.map((row) => [row.sku, row.product_slug, row.explicit_slug])).toEqual([
+            ['GHC-NOIR-GOLD', 'noir-gold-set', true],
+            ['GHC-NOIR-SAGE', 'noir-gold-set', true],
+        ]);
+        expect(validateCatalogueCsvRows(rows)).toEqual([]);
+    });
+
+    it('rejects malformed product slugs and over-long names before import', () => {
+        const rows = parseCatalogueCsv(catalogueCsvExport([product]));
+        rows[0].product_slug = 'Bad Slug!';
+        rows[0].product_name = 'x'.repeat(181);
+
+        expect(validateCatalogueCsvRows(rows)).toEqual(
+            expect.arrayContaining([
+                'Row 2: product_slug may only contain lowercase letters, numbers and single dashes.',
+                'Row 2: product_name must be 180 characters or fewer.',
+            ]),
+        );
     });
 
     it('imports the legacy barcode column as the renamed alias field', () => {

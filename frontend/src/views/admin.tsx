@@ -1,9 +1,10 @@
 'use client';
 
-import React, { FormEvent, useEffect, useMemo, useState } from 'react';
+import React, { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Redirect, useLocation } from '../lib/router';
+import { Link, Redirect, useLocation } from '../lib/router';
 import AdminShell from '../components/AdminShell';
+import Pagination from '../components/Pagination';
 import {
     IconAlert,
     IconCheckCircle,
@@ -25,8 +26,9 @@ import {
 } from '../components/Icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useDialog } from '../hooks/useDialog';
-import { api } from '../lib/api';
-import { auditActionLabel, auditChangeRows, auditEntityLabel, auditFactRows } from '../lib/audit-log';
+import { api, ApiError, sessionHasExpired } from '../lib/api';
+import { defaultAdminPath, HealthTone, matchAdminSection, operationsHealth } from '../lib/admin-routes';
+import { auditActionLabel, auditChangeRows, auditEntityLabel, auditEntityTypeOptions, auditFactRows } from '../lib/audit-log';
 import {
     catalogueCsvExport,
     catalogueCsvTemplate,
@@ -36,13 +38,35 @@ import {
     parseCatalogueCsv,
     validateCatalogueCsvRows,
 } from '../lib/catalogue-csv';
-import { inventoryCsvExport, inventoryCsvTemplate, parseInventoryCsv, validateInventoryCsvRows } from '../lib/inventory-csv';
+import { inventoryCsvExport, inventoryCsvTemplate, parseInventoryCsv, planInventoryImport, validateInventoryCsvRows } from '../lib/inventory-csv';
 import { fallbackImage, rupees, shortDate, slugify, titleCase } from '../lib/commerce';
-import { openTrustedUrl } from '../lib/navigation';
-import { productImageVariantIds, variantOptionLabel } from '../lib/product-options';
-import { basisPointsToPercent, localDateBoundaryIso, percentToBasisPoints } from '../lib/promotions';
+import {
+    canAdminCancelOrder,
+    cancellationRefundPaise,
+    nextShipmentStatuses,
+    paiseToRupeesInput as refundAmountInput,
+    parseRupeesToPaise,
+    refundablePaise,
+    returnRefundKey,
+} from '../lib/fulfilment';
+import { openTrustedUrlFrom } from '../lib/navigation';
+import { lowestPricedVariant, productImageVariantIds, variantOptionLabel, variantPricesDiffer } from '../lib/product-options';
+import {
+    basisPointsToPercent,
+    COUPON_CODE_PATTERN,
+    CouponStatus,
+    couponStatus,
+    istDateBoundaryIso,
+    istDateInputValue,
+    istDateTimeLabel,
+    localDateBoundaryIso,
+    normalizeCouponCode,
+    paiseToRupeesValue,
+    percentToBasisPoints,
+    rupeesToPaise,
+} from '../lib/promotions';
 import { readSpreadsheetText } from '../lib/spreadsheet-import';
-import { AppRole, AuditLog, Category, Coupon, CreatedStaffUser, InventoryLevel, OperationsSnapshot, Order, Product, ProductVariant, StaffUser, Warehouse } from '../types';
+import { AppRole, AuditLog, AuditLogFilters, Category, Coupon, CreatedStaffUser, DailyRevenue, InventoryLevel, InventoryLevelView, OperationsSnapshot, Order, Product, ProductVariant, RevenueReport, StaffUser, Warehouse } from '../types';
 
 const box = 'admin-panel';
 const inputStyle = 'admin-field h-12 w-full text-sm';
@@ -111,29 +135,19 @@ const NotificationToast = ({ message, type = 'info', onClose }: { message: strin
 // ----------------------------------------------------
 // 1. OVERVIEW / DASHBOARD ANALYTICS
 // ----------------------------------------------------
-const RevenueChart = ({ orders }: { orders: Order[] }) => {
-    const paidStatuses = new Set(['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED']);
-    const points = Array.from({ length: 7 }, (_, offset) => {
-        const date = new Date();
-        date.setHours(0, 0, 0, 0);
-        date.setDate(date.getDate() - (6 - offset));
-        const nextDate = new Date(date);
-        nextDate.setDate(nextDate.getDate() + 1);
-        const rev = orders
-            .filter((order) => {
-                const createdAt = new Date(order.createdAt);
-                return paidStatuses.has(order.status) && createdAt >= date && createdAt < nextDate;
-            })
-            .reduce((sum, order) => sum + order.totalPaise, 0);
-        return { day: date.toLocaleDateString('en-IN', { weekday: 'short' }), rev };
-    });
+const istWeekday = (date: string): string =>
+    new Date(`${date}T12:00:00+05:30`).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' });
+
+const RevenueChart = ({ days }: { days: DailyRevenue[] | null }) => {
+    const points = (days ?? []).map((day) => ({ key: day.date, day: istWeekday(day.date), rev: Math.max(day.netPaise, 0) }));
     const max = Math.max(...points.map((point) => point.rev), 1);
-    const weeklyRevenue = points.reduce((sum, point) => sum + point.rev, 0);
+    const weeklyRevenue = (days ?? []).reduce((sum, day) => sum + day.netPaise, 0);
     const height = 140;
     const width = 500;
+    const position = (index: number) => (points.length > 1 ? (index / (points.length - 1)) * width : width / 2);
     const pathD = points
         .map((p, i) => {
-            const x = (i / (points.length - 1)) * width;
+            const x = position(i);
             const y = height - (p.rev / max) * height;
             return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
         })
@@ -145,6 +159,7 @@ const RevenueChart = ({ orders }: { orders: Order[] }) => {
                 <div>
                     <span className="eyebrow">Weekly performance</span>
                     <h3 className="font-display text-2xl text-cream">Revenue by day</h3>
+                    <p className="mt-1 text-xs text-cream/45">Captured payments minus processed refunds, by IST day.</p>
                 </div>
                 <div className="flex items-center gap-2 border border-line px-3 py-1 text-xs text-cream/55">
                     <IconTrendingUp size={14} />
@@ -152,36 +167,38 @@ const RevenueChart = ({ orders }: { orders: Order[] }) => {
                 </div>
             </div>
             <div className="mt-6">
-                <svg
-                    viewBox={`0 0 ${width} ${height}`}
-                    className="w-full overflow-visible"
-                    role="img"
-                    aria-label={`Revenue over the last seven days. Total ${rupees(weeklyRevenue)}.`}
-                >
-                    <defs>
-                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#c9a35b" stopOpacity="0.2" />
-                            <stop offset="100%" stopColor="#c9a35b" stopOpacity="0" />
-                        </linearGradient>
-                    </defs>
-                    {/* Fill */}
-                    <path d={`${pathD} L ${width} ${height} L 0 ${height} Z`} fill="url(#chartGradient)" />
-                    {/* Line */}
-                    <path d={pathD} fill="none" stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />
-                    {/* Data Points */}
-                    {points.map((p, i) => {
-                        const x = (i / (points.length - 1)) * width;
-                        const y = height - (p.rev / max) * height;
-                        return (
-                            <g key={p.day} className="group cursor-pointer">
-                                <circle cx={x} cy={y} r="4" fill="#11110f" stroke="#c9a35b" strokeWidth="2" />
-                                <text x={x} y={height + 20} textAnchor="middle" fill="#9CA3AF" fontSize="10">
-                                    {p.day}
-                                </text>
-                            </g>
-                        );
-                    })}
-                </svg>
+                {days === null ? (
+                    <p className="py-10 text-center text-sm text-cream/40">Revenue is unavailable right now.</p>
+                ) : (
+                    <svg
+                        viewBox={`0 0 ${width} ${height}`}
+                        className="w-full overflow-visible"
+                        role="img"
+                        aria-label={`Revenue over the last seven days. Total ${rupees(weeklyRevenue)}.`}
+                    >
+                        <defs>
+                            <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#c9a35b" stopOpacity="0.2" />
+                                <stop offset="100%" stopColor="#c9a35b" stopOpacity="0" />
+                            </linearGradient>
+                        </defs>
+                        {points.length > 0 && <path d={`${pathD} L ${width} ${height} L 0 ${height} Z`} fill="url(#chartGradient)" />}
+                        {points.length > 0 && <path d={pathD} fill="none" stroke="#c9a35b" strokeWidth="2.5" strokeLinecap="round" />}
+                        {points.map((p, i) => {
+                            const x = position(i);
+                            const y = height - (p.rev / max) * height;
+                            return (
+                                <g key={p.key}>
+                                    <title>{`${p.day}: ${rupees(p.rev)}`}</title>
+                                    <circle cx={x} cy={y} r="4" fill="#11110f" stroke="#c9a35b" strokeWidth="2" />
+                                    <text x={x} y={height + 20} textAnchor="middle" fill="#9CA3AF" fontSize="10">
+                                        {p.day}
+                                    </text>
+                                </g>
+                            );
+                        })}
+                    </svg>
+                )}
             </div>
         </div>
     );
@@ -190,22 +207,25 @@ const RevenueChart = ({ orders }: { orders: Order[] }) => {
 const Overview = () => {
     const [orders, setOrders] = useState<Order[]>([]);
     const [ops, setOps] = useState<OperationsSnapshot | null>(null);
+    const [revenue, setRevenue] = useState<RevenueReport | null>(null);
     const [error, setError] = useState('');
 
     useEffect(() => {
-        const from = new Date();
-        from.setDate(from.getDate() - 7);
-        Promise.all([api.adminOrders(new URLSearchParams({ limit: '100', from: from.toISOString() }).toString()), api.operations()])
-            .then(([orderRows, snapshot]) => {
-                setOrders(orderRows);
-                setOps(snapshot);
-            })
-            .catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load admin overview.'));
+        let active = true;
+        void Promise.allSettled([api.adminOrders(new URLSearchParams({ limit: '5' }).toString()), api.operations(), api.adminRevenue()]).then(
+            ([orderRows, snapshot, report]) => {
+                if (!active) return;
+                if (orderRows.status === 'fulfilled') setOrders(orderRows.value);
+                if (snapshot.status === 'fulfilled') setOps(snapshot.value);
+                if (report.status === 'fulfilled') setRevenue(report.value);
+                const failure = [orderRows, snapshot, report].find((result): result is PromiseRejectedResult => result.status === 'rejected');
+                if (failure) setError(failure.reason instanceof Error ? failure.reason.message : 'Unable to load admin overview.');
+            },
+        );
+        return () => {
+            active = false;
+        };
     }, []);
-
-    const totalRevenue = orders
-        .filter((order) => ['CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED'].includes(order.status))
-        .reduce((sum, order) => sum + order.totalPaise, 0);
 
     return (
         <AdminShell title="Overview" description="Track today’s orders, stock risks and system health from one place.">
@@ -233,15 +253,15 @@ const Overview = () => {
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
                 {[
                     {
-                        label: 'Loaded order value',
-                        value: rupees(totalRevenue),
-                        badge: 'Current result set',
+                        label: 'Net revenue · 7 days',
+                        value: revenue ? rupees(revenue.totals.netPaise) : 'Unavailable',
+                        badge: revenue?.totals.refundedPaise ? `${rupees(revenue.totals.refundedPaise)} refunded` : 'No refunds',
                         isAlert: false,
                     },
                     {
-                        label: 'Orders loaded',
-                        value: String(orders.length),
-                        badge: 'Current result set',
+                        label: 'Paid orders · 7 days',
+                        value: metricValue(revenue?.totals.capturedPayments),
+                        badge: 'Captured payments',
                         isAlert: false,
                     },
                     {
@@ -274,7 +294,7 @@ const Overview = () => {
             {/* Analytics Visual Chart & Recent Activity */}
             <div className="mt-8 grid gap-8 xl:grid-cols-3">
                 <div className="xl:col-span-2">
-                    <RevenueChart orders={orders} />
+                    <RevenueChart days={revenue?.days ?? null} />
                 </div>
                 <div className={`${box} p-6`}>
                     <h3 className="font-display text-2xl text-cream">System Signals</h3>
@@ -289,17 +309,17 @@ const Overview = () => {
                         </div>
                         <div className="flex items-center justify-between border-b border-gold-500/10 pb-3">
                             <span className="text-xs text-cream/70">API Error Total</span>
-                            <span className="text-xs text-cream/80 font-medium">{ops?.apiServerErrorsTotal ?? 0} errors</span>
+                            <span className="text-xs text-cream/80 font-medium">{ops ? `${metricValue(ops.apiServerErrorsTotal)} errors` : 'Unavailable'}</span>
                         </div>
                         <div className="flex items-center justify-between border-b border-gold-500/10 pb-3">
                             <span className="text-xs text-cream/70">Webhook Processing</span>
                             <span className="text-xs text-cream/80 font-medium">
-                                {ops ? (ops.failedWebhooks ? `${ops.failedWebhooks} failed` : 'All processed') : '—'}
+                                {ops ? (ops.failedWebhooks ? `${metricValue(ops.failedWebhooks)} failed` : 'All processed') : '—'}
                             </span>
                         </div>
                         <div className="flex items-center justify-between">
-                            <span className="text-xs text-cream/70">Expired Payments Cleaned</span>
-                            <span className="text-xs text-cream/80 font-medium">{ops?.expiredPendingPayments ?? 0}</span>
+                            <span className="text-xs text-cream/70">Expired pending orders awaiting cleanup</span>
+                            <span className="text-xs text-cream/80 font-medium">{metricValue(ops?.expiredPendingPayments)}</span>
                         </div>
                     </div>
                 </div>
@@ -322,6 +342,10 @@ const Overview = () => {
 // ----------------------------------------------------
 // 2. ORDERS MANAGEMENT SUITE
 // ----------------------------------------------------
+/** The payment that matters for an order: the captured one if any, else the latest attempt. */
+const primaryPayment = (order: Order) =>
+    order.payments?.find((payment) => payment.status === 'CAPTURED' || payment.status === 'REFUNDED') ?? order.payments?.[0];
+
 const OrdersTable = ({
     orders,
     onInspect,
@@ -345,7 +369,8 @@ const OrdersTable = ({
             </thead>
             <tbody className="divide-y divide-gold-500/10">
                 {orders.map((order) => {
-                    const payment = order.payments?.[0];
+                    const payment = primaryPayment(order);
+                    const itemCount = order.itemCount ?? order.itemsSnapshot?.length ?? 0;
                     const statusColor =
                         order.status === 'CONFIRMED'
                             ? 'text-emerald-400 border-emerald-500/30 bg-emerald-950/20'
@@ -376,7 +401,7 @@ const OrdersTable = ({
                                     <span className="text-cream/45">Awaiting payment</span>
                                 )}
                             </td>
-                            <td data-label="Items" className="p-4 text-xs text-cream/60">{order.itemsSnapshot?.length || 0} line items</td>
+                            <td data-label="Items" className="p-4 text-xs text-cream/60">{itemCount} line {itemCount === 1 ? 'item' : 'items'}</td>
                             <td data-label="Total" className="p-4 text-right font-semibold text-gold-300">{rupees(order.totalPaise)}</td>
                             <td data-label="Actions" className="p-4 text-center">
                                 <div className="flex items-center justify-center gap-2">
@@ -400,123 +425,272 @@ const OrdersTable = ({
     </div>
 );
 
+/** The inline form open inside the order dialog, if any. Closing it (Cancel) aborts the action. */
+type OrderActionForm =
+    | { kind: 'shipment'; carrier: string }
+    | { kind: 'tracking'; shipmentId: string; status: string; note: string }
+    | { kind: 'review'; returnId: string; status: 'APPROVED' | 'REJECTED' | 'RECEIVED'; note: string; restock: boolean }
+    | { kind: 'refund'; returnId: string; amount: string; error: string }
+    | { kind: 'cancel'; reason: string; error: string };
+
+const actionButton = 'rounded-sm border px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50';
+const ORDER_PAGE_SIZE = 100;
+
 const OrdersAdmin = () => {
     const { session } = useAuth();
+    const roles = session?.roles ?? [];
+    const can = (...allowed: AppRole[]) => allowed.some((role) => roles.includes(role));
+    // Mirrors the @Roles on each backend route so nobody is offered a button that will 403.
+    // Support staff view orders and handle returns; fulfilment moves belong to the warehouse.
+    const canShip = can('ADMIN', 'WAREHOUSE_MANAGER');
+    const canTransition = can('ADMIN', 'WAREHOUSE_MANAGER');
+    const canTrack = can('ADMIN', 'WAREHOUSE_MANAGER');
+    const canCancel = can('ADMIN');
+    const canReviewReturns = can('ADMIN', 'SUPPORT_AGENT', 'WAREHOUSE_MANAGER');
+    const canRestock = can('ADMIN', 'WAREHOUSE_MANAGER');
+    const canRefund = can('ADMIN', 'SUPPORT_AGENT');
+
     const [orders, setOrders] = useState<Order[]>([]);
     const [query, setQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
-    const [inspectingOrder, setInspectingOrder] = useState<Order | null>(null);
+    const [selected, setSelected] = useState<Order | null>(null);
+    const [detail, setDetail] = useState<Order | null>(null);
+    const [detailError, setDetailError] = useState('');
+    const [form, setForm] = useState<OrderActionForm | null>(null);
+    const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
     const [loadingOrders, setLoadingOrders] = useState(false);
     const [hasMore, setHasMore] = useState(false);
-    const orderDialogRef = useDialog<HTMLDivElement>(Boolean(inspectingOrder), () => setInspectingOrder(null));
+    const listRequest = useRef<AbortController | null>(null);
+    const detailRequest = useRef<AbortController | null>(null);
+    const closeOrder = () => {
+        detailRequest.current?.abort();
+        setSelected(null);
+        setDetail(null);
+        setForm(null);
+        setDetailError('');
+    };
+    const orderDialogRef = useDialog<HTMLDivElement>(Boolean(selected), closeOrder);
 
-    const load = async (search = '', status = 'ALL', offset = 0, append = false, signal?: AbortSignal) => {
+    const load = async (search = '', status = 'ALL', offset = 0, append = false) => {
+        // Only the latest list request may write state, so fast filter clicks never show stale rows.
+        listRequest.current?.abort();
+        const controller = new AbortController();
+        listRequest.current = controller;
         setLoadingOrders(true);
         try {
+            const trimmed = search.trim();
             const result = await api.adminOrders(
                 new URLSearchParams({
-                    limit: '100',
+                    limit: String(ORDER_PAGE_SIZE),
                     offset: String(offset),
-                    ...(search ? { search } : {}),
+                    ...(trimmed ? { search: trimmed } : {}),
                     ...(status !== 'ALL' ? { status } : {}),
                 }).toString(),
-                signal,
+                controller.signal,
             );
-            if (signal?.aborted) return;
+            if (controller.signal.aborted) return;
             setOrders((current) => {
                 if (!append) return result;
                 const existingIds = new Set(current.map((order) => order.id));
                 return [...current, ...result.filter((order) => !existingIds.has(order.id))];
             });
-            setHasMore(result.length === 100);
+            setHasMore(result.length === ORDER_PAGE_SIZE);
         } catch (caught) {
-            if (!signal?.aborted) {
+            if (!controller.signal.aborted) {
                 setError(caught instanceof Error ? caught.message : 'Unable to load orders.');
             }
         } finally {
-            if (!signal?.aborted) setLoadingOrders(false);
+            if (listRequest.current === controller) {
+                listRequest.current = null;
+                setLoadingOrders(false);
+            }
         }
     };
 
     useEffect(() => {
-        const controller = new AbortController();
-        void load('', 'ALL', 0, false, controller.signal);
-        return () => controller.abort();
+        void load('', 'ALL', 0, false);
+        return () => {
+            listRequest.current?.abort();
+            detailRequest.current?.abort();
+        };
     }, []);
 
-    const downloadInvoice = async (orderId: string) => {
+    /** Puts a fresh detail in the dialog and in its list row, without touching pagination. */
+    const replaceOrder = (next: Order) => {
+        setDetail((current) => (current && current.id !== next.id ? current : next));
+        setSelected((current) => (current && current.id === next.id ? next : current));
+        setOrders((current) =>
+            current.map((order) => (order.id === next.id ? { ...next, itemCount: next.itemsSnapshot?.length ?? order.itemCount } : order)),
+        );
+    };
+
+    const fetchDetail = async (orderId: string): Promise<Order | null> => {
+        detailRequest.current?.abort();
+        const controller = new AbortController();
+        detailRequest.current = controller;
         try {
-            const result = await api.adminInvoice(orderId);
-            if (result?.url && !openTrustedUrl(result.url)) throw new Error('Invoice URL was rejected');
+            const next = await api.adminOrder(orderId, controller.signal);
+            if (controller.signal.aborted) return null;
+            replaceOrder(next);
+            setDetailError('');
+            return next;
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Invoice unavailable.');
+            if (!controller.signal.aborted) setDetailError(caught instanceof Error ? caught.message : 'Unable to load this order.');
+            return null;
         }
     };
 
-    const replaceOrder = (next: Order) => {
-        setInspectingOrder(next);
-        setOrders((current) => current.map((order) => order.id === next.id ? next : order));
+    const inspect = (order: Order) => {
+        setSelected(order);
+        setDetail(null);
+        setForm(null);
+        setDetailError('');
+        void fetchDetail(order.id);
     };
 
-    const transition = async (status: string) => {
-        if (!inspectingOrder) return;
-        try { replaceOrder(await api.transitionOrder(inspectingOrder.id, status)); }
-        catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to update order status.'); }
-    };
-
-    const createShipment = async () => {
-        if (!inspectingOrder) return;
-        const carrier = window.prompt('Carrier name (optional):') || undefined;
+    /** Runs one order action with a busy state, a success toast, and a refetch of the order. */
+    const run = async (key: string, action: () => Promise<string | void>, failure: string, orderId = detail?.id) => {
+        if (busy) return;
+        setBusy(key);
+        setError('');
         try {
-            const shipment = await api.createShipment(inspectingOrder.id, carrier);
-            replaceOrder({ ...inspectingOrder, shipments: [...(inspectingOrder.shipments || []), shipment] });
-        } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to create shipment.'); }
+            const message = await action();
+            if (message) setSuccessMsg(message);
+            setForm(null);
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : failure);
+        } finally {
+            // Refetch even after a failure: the server may have applied part of the action.
+            if (orderId) await fetchDetail(orderId);
+            setBusy(null);
+        }
     };
 
-    const addTracking = async (shipmentId: string) => {
-        if (!inspectingOrder) return;
-        const status = window.prompt('Shipment status: LABEL_CREATED, PICKED_UP, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED')?.trim().toUpperCase();
-        if (!status) return;
-        try {
-            const shipment = await api.addTrackingEvent(shipmentId, {
+    const downloadInvoice = (orderId: string) => {
+        if (busy) return;
+        setBusy('invoice');
+        setError('');
+        // Opens the tab synchronously inside the click so popup blockers allow it.
+        openTrustedUrlFrom(() => api.adminInvoice(orderId).then((result) => result?.url))
+            .catch((caught) => setError(caught instanceof Error ? caught.message : 'Invoice unavailable.'))
+            .finally(() => setBusy(null));
+    };
+
+    const transition = (status: string) => {
+        if (!detail) return;
+        void run('transition', async () => {
+            replaceOrder(await api.transitionOrder(detail.id, status));
+            return `Order moved to ${titleCase(status)}.`;
+        }, 'Unable to update order status.');
+    };
+
+    const submitShipment = (carrier: string) => {
+        if (!detail) return;
+        void run('shipment', async () => {
+            await api.createShipment(detail.id, carrier.trim() || undefined);
+            return 'Shipment created.';
+        }, 'Unable to create shipment.');
+    };
+
+    const submitTracking = (shipmentId: string, status: string, note: string) => {
+        if (!detail || !status) return;
+        void run('tracking', async () => {
+            await api.addTrackingEvent(shipmentId, {
                 providerEventId: `manual-${Date.now()}`,
                 status,
                 occurredAt: new Date().toISOString(),
-                message: 'Updated by staff',
+                message: note.trim() || 'Updated by staff',
             });
-            replaceOrder({ ...inspectingOrder, shipments: (inspectingOrder.shipments || []).map((item) => item.id === shipment.id ? { ...item, ...shipment } : item) });
-            await load(query, statusFilter);
-        } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to add tracking event.'); }
+            return `Shipment marked ${titleCase(status)}.`;
+        }, 'Unable to add tracking event.');
     };
 
-    const reviewReturn = async (returnId: string, status: string) => {
-        try {
-            await api.reviewReturn(returnId, status, window.prompt('Review note (optional):') || undefined);
-            setInspectingOrder(null);
-            await load(query, statusFilter);
-        } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to review return.'); }
+    const submitReview = (returnId: string, status: string, note: string, restock: boolean) => {
+        if (!detail) return;
+        if (status === 'REJECTED' && !window.confirm('Reject this return request? The customer will not be refunded.')) return;
+        void run('review', async () => {
+            const result = await api.reviewReturn(returnId, status, note.trim() || undefined, restock);
+            const restocked = result?.restockedUnits ? ` ${result.restockedUnits} unit${result.restockedUnits === 1 ? '' : 's'} returned to stock.` : '';
+            return `Return ${titleCase(status).toLowerCase()}.${restocked}`;
+        }, 'Unable to review return.');
     };
 
-    const refundReturn = async (returnId: string) => {
-        if (!inspectingOrder) return;
-        const payment = inspectingOrder.payments?.find((item) => item.status === 'CAPTURED' || item.status === 'REFUNDED');
-        if (!payment) { setError('No captured payment is available for refund.'); return; }
-        const raw = window.prompt('Refund amount in rupees:');
-        const amountPaise = raw ? Math.round(Number(raw) * 100) : 0;
-        if (!Number.isFinite(amountPaise) || amountPaise < 1) return;
-        try {
-            await api.createRefund({ paymentId: payment.id, returnRequestId: returnId, amountPaise, idempotencyKey: `return-${returnId}-${Date.now()}`, reason: 'Approved customer return' });
-            setInspectingOrder(null);
-            await load(query, statusFilter);
-        } catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to create refund.'); }
+    const submitRefund = (returnId: string, amount: string) => {
+        if (!detail) return;
+        const payment = detail.payments?.find((item) => item.status === 'CAPTURED' || item.status === 'REFUNDED');
+        if (!payment) {
+            setError('No captured payment is available for refund.');
+            return;
+        }
+        const remaining = refundablePaise(payment);
+        const amountPaise = parseRupeesToPaise(amount);
+        const invalid = !amountPaise
+            ? 'Enter a refund amount in rupees, for example 1299 or 1,299.50.'
+            : amountPaise > remaining
+              ? `At most ${rupees(remaining)} can still be refunded.`
+              : '';
+        if (invalid || !amountPaise) {
+            setForm({ kind: 'refund', returnId, amount, error: invalid });
+            return;
+        }
+        const customer = detail.addressSnapshot?.recipientName || 'the customer';
+        const method = payment.method ? titleCase(payment.method) : 'original payment method';
+        if (!window.confirm(`Refund ${rupees(amountPaise)} to ${customer} (${method}, order ${detail.orderNumber})?`)) return;
+        void run('refund', async () => {
+            const refund = await api.createRefund({
+                paymentId: payment.id,
+                returnRequestId: returnId,
+                amountPaise,
+                idempotencyKey: returnRefundKey(returnId, payment),
+                reason: 'Approved customer return',
+            });
+            return refund?.status === 'PROCESSED'
+                ? `Refunded ${rupees(amountPaise)}.`
+                : `Refund of ${rupees(amountPaise)} submitted; HDFC has not confirmed it yet and it will be reconciled automatically.`;
+        }, 'Unable to create refund.');
     };
+
+    const submitCancel = (reason: string) => {
+        if (!detail) return;
+        const trimmed = reason.trim();
+        if (trimmed.length < 3) {
+            setForm({ kind: 'cancel', reason, error: 'Enter a reason of at least 3 characters; it is kept in the audit log.' });
+            return;
+        }
+        const refundPaise = cancellationRefundPaise(detail);
+        void run('cancel', async () => {
+            replaceOrder(await api.cancelAdminOrder(detail.id, trimmed));
+            return refundPaise > 0
+                ? `Order cancelled and stock released. A refund of ${rupees(refundPaise)} is being sent to HDFC automatically.`
+                : 'Order cancelled and stock released.';
+        }, 'Unable to cancel this order.');
+    };
+
+    const reconcileRefunds = () => {
+        if (busy) return;
+        setBusy('reconcile');
+        setError('');
+        api.reconcileRefunds()
+            .then(async (result) => {
+                setSuccessMsg(
+                    `Checked ${result.inspected} pending refund${result.inspected === 1 ? '' : 's'}: ${result.processed} processed, ${result.failed} failed, ${result.pending} still pending${result.errors ? `, ${result.errors} could not be checked` : ''}.`,
+                );
+                await Promise.all([load(query, statusFilter), detail ? fetchDetail(detail.id) : Promise.resolve(null)]);
+            })
+            .catch((caught) => setError(caught instanceof Error ? caught.message : 'Refund reconciliation failed.'))
+            .finally(() => setBusy(null));
+    };
+
+    const header = detail ?? selected;
+    const activeShipment = detail?.shipments?.some((shipment) => shipment.status !== 'CANCELLED') ?? false;
 
     return (
         <AdminShell title="Orders" description="Search paid customer orders and view their complete product, customer, and payment records.">
-            <NotificationToast message={error} type="error" onClose={() => setError('')} />
-            <NotificationToast message={successMsg} type="success" onClose={() => setSuccessMsg('')} />
+            {/* While the order dialog is open its overlay hides the page, so messages render inside it instead. */}
+            {!header && <NotificationToast message={error} type="error" onClose={() => setError('')} />}
+            {!header && <NotificationToast message={successMsg} type="success" onClose={() => setSuccessMsg('')} />}
 
             {/* Filter Tabs & Search Bar */}
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -532,7 +706,7 @@ const OrdersAdmin = () => {
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         className="min-w-0 flex-1 bg-transparent text-sm outline-none text-cream"
-                        placeholder="Search order number or customer email…"
+                        placeholder="Search order number, customer name or email…"
                     />
                     <button className="bg-gold-400 px-5 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300">Search</button>
                 </form>
@@ -555,12 +729,19 @@ const OrdersAdmin = () => {
                         </button>
                     ))}
                 </div>
-                {session?.roles.some((role) => ['ADMIN', 'SUPPORT_AGENT'].includes(role)) && (
-                    <button onClick={() => void api.reconcileRefunds().then(() => setSuccessMsg('Pending refunds reconciled.')).catch((caught) => setError(caught instanceof Error ? caught.message : 'Refund reconciliation failed.'))} className="border border-gold-500/30 px-4 py-2 text-xs font-bold uppercase text-gold-300">Reconcile refunds</button>
+                {canRefund && (
+                    <button
+                        type="button"
+                        disabled={busy !== null}
+                        onClick={reconcileRefunds}
+                        className="border border-gold-500/30 px-4 py-2 text-xs font-bold uppercase text-gold-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {busy === 'reconcile' ? 'Reconciling…' : 'Reconcile refunds'}
+                    </button>
                 )}
             </div>
 
-            <OrdersTable orders={orders} onInspect={setInspectingOrder} />
+            <OrdersTable orders={orders} onInspect={inspect} />
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-cream/55">
                 <span>{loadingOrders ? 'Loading orders…' : `Showing ${orders.length}${hasMore ? '+' : ''} orders`}</span>
                 {hasMore && (
@@ -576,7 +757,7 @@ const OrdersAdmin = () => {
             </div>
 
             {/* Order Inspector Modal */}
-            {inspectingOrder && (
+            {header && (
                 <AdminModalLayer>
                 <div className="fixed inset-0 z-50 flex items-start justify-center overflow-hidden bg-black/85 p-2 backdrop-blur-sm sm:items-center sm:p-4">
                     <div
@@ -586,38 +767,58 @@ const OrdersAdmin = () => {
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="admin-order-dialog-title"
+                        aria-busy={!detail || busy !== null}
                     >
                         <div className="flex items-center justify-between border-b border-gold-500/20 pb-4">
                             <div>
                                 <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-gold-400">Order Inspection</span>
                                 <h2 id="admin-order-dialog-title" className="font-display text-3xl text-cream">
-                                    {inspectingOrder.orderNumber}
+                                    {header.orderNumber}
                                 </h2>
                             </div>
-                            <button type="button" onClick={() => setInspectingOrder(null)} className="grid size-11 shrink-0 place-items-center rounded-sm text-cream/60 hover:bg-obsidian hover:text-cream" aria-label="Close order dialog">
+                            <button type="button" onClick={closeOrder} className="grid size-11 shrink-0 place-items-center rounded-sm text-cream/60 hover:bg-obsidian hover:text-cream" aria-label="Close order dialog">
                                 <IconClose size={22} />
                             </button>
                         </div>
+                        <div className="mt-4 empty:hidden">
+                            <NotificationToast message={error} type="error" onClose={() => setError('')} />
+                            <NotificationToast message={successMsg} type="success" onClose={() => setSuccessMsg('')} />
+                        </div>
 
+                        {!detail ? (
+                            <div className="py-12 text-center text-sm text-cream/50" role={detailError ? 'alert' : 'status'}>
+                                {detailError ? (
+                                    <>
+                                        <p className="text-red-300">{detailError}</p>
+                                        <button type="button" onClick={() => void fetchDetail(header.id)} className="mt-4 border border-gold-500/30 px-4 py-2 text-xs text-gold-300">
+                                            Try again
+                                        </button>
+                                    </>
+                                ) : (
+                                    'Loading order details…'
+                                )}
+                            </div>
+                        ) : (
+                        <>
                         <div className="mt-6 grid gap-6 md:grid-cols-2">
                             {/* Summary Box */}
                             <div className="border border-gold-500/15 bg-obsidian/60 p-4 rounded-sm">
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-gold-400">Customer & Contact Details</h4>
                                 <div className="mt-3 space-y-1.5 text-xs text-cream/70">
                                     <p>
-                                        <strong className="text-cream">Recipient:</strong> {inspectingOrder.addressSnapshot?.recipientName || 'Customer'}
+                                        <strong className="text-cream">Recipient:</strong> {detail.addressSnapshot?.recipientName || 'Customer'}
                                     </p>
                                     <p>
-                                        <strong className="text-cream">Email:</strong> {inspectingOrder.addressSnapshot?.email || 'N/A'}
+                                        <strong className="text-cream">Email:</strong> {detail.addressSnapshot?.email || 'N/A'}
                                     </p>
                                     <p>
-                                        <strong className="text-cream">Phone:</strong> {inspectingOrder.addressSnapshot?.phone || 'N/A'}
+                                        <strong className="text-cream">Phone:</strong> {detail.addressSnapshot?.phone || 'N/A'}
                                     </p>
                                     <p>
-                                        <strong className="text-cream">Address:</strong> {inspectingOrder.addressSnapshot?.line1},{' '}
-                                        {inspectingOrder.addressSnapshot?.line2 ? `${inspectingOrder.addressSnapshot.line2}, ` : ''}
-                                        {inspectingOrder.addressSnapshot?.city}, {inspectingOrder.addressSnapshot?.state}{' '}
-                                        {inspectingOrder.addressSnapshot?.postalCode}, {inspectingOrder.addressSnapshot?.country || 'IN'}
+                                        <strong className="text-cream">Address:</strong> {detail.addressSnapshot?.line1},{' '}
+                                        {detail.addressSnapshot?.line2 ? `${detail.addressSnapshot.line2}, ` : ''}
+                                        {detail.addressSnapshot?.city}, {detail.addressSnapshot?.state}{' '}
+                                        {detail.addressSnapshot?.postalCode}, {detail.addressSnapshot?.country || 'IN'}
                                     </p>
                                 </div>
                             </div>
@@ -627,77 +828,334 @@ const OrdersAdmin = () => {
                                 <div className="mt-3 space-y-1.5 text-xs text-cream/70">
                                     <p>
                                         <strong className="text-cream">Current Status:</strong>{' '}
-                                        <span className="text-gold-300 font-semibold">{titleCase(inspectingOrder.status)}</span>
+                                        <span className="text-gold-300 font-semibold">{titleCase(detail.status)}</span>
                                     </p>
                                     <p>
-                                        <strong className="text-cream">Placed On:</strong> {new Date(inspectingOrder.createdAt).toLocaleString('en-IN')}
+                                        <strong className="text-cream">Placed On:</strong> {new Date(detail.createdAt).toLocaleString('en-IN')}
                                     </p>
                                     <p>
-                                        <strong className="text-cream">Items subtotal:</strong> {rupees(inspectingOrder.subtotalPaise)}
+                                        <strong className="text-cream">Items subtotal:</strong> {rupees(detail.subtotalPaise)}
                                     </p>
-                                    {inspectingOrder.discountPaise > 0 && (
+                                    {detail.discountPaise > 0 && (
                                         <p>
-                                            <strong className="text-cream">Discount:</strong> -{rupees(inspectingOrder.discountPaise)}
+                                            <strong className="text-cream">Discount:</strong> -{rupees(detail.discountPaise)}
                                         </p>
                                     )}
                                     <p>
-                                        <strong className="text-cream">Tax:</strong> {rupees(inspectingOrder.taxPaise)}
+                                        <strong className="text-cream">Tax:</strong> {rupees(detail.taxPaise)}
                                     </p>
                                     <p>
                                         <strong className="text-cream">Total paid:</strong>{' '}
-                                        <span className="font-display text-base text-gold-300">{rupees(inspectingOrder.totalPaise)}</span>
+                                        <span className="font-display text-base text-gold-300">{rupees(detail.totalPaise)}</span>
                                     </p>
                                     <p>
-                                        <strong className="text-cream">HDFC order:</strong> {inspectingOrder.hdfcOrderId || 'Legacy (pre-HDFC) order'}
+                                        <strong className="text-cream">HDFC order:</strong> {detail.hdfcOrderId || 'Legacy (pre-HDFC) order'}
                                     </p>
-                                    {inspectingOrder.payments?.map((payment) => (
+                                    {detail.payments?.map((payment) => (
                                         <div key={payment.id} className="border-t border-gold-500/10 pt-2">
                                             <p><strong className="text-cream">Payment:</strong> {titleCase(payment.status)} · {rupees(payment.amountPaise)}</p>
                                             <p><strong className="text-cream">Method:</strong> {payment.method ? titleCase(payment.method) : 'Not reported'}</p>
                                             <p><strong className="text-cream">Payment ID:</strong> {payment.hdfcTransactionId || 'Not reported'}</p>
                                             {payment.capturedAt && <p><strong className="text-cream">Captured:</strong> {new Date(payment.capturedAt).toLocaleString('en-IN')}</p>}
-                                            {payment.refunds.length > 0 && <p><strong className="text-cream">Refunds:</strong> {payment.refunds.map((refund) => `${titleCase(refund.status)} ${rupees(refund.amountPaise)}`).join(', ')}</p>}
+                                            {(payment.refunds ?? []).length > 0 && <p><strong className="text-cream">Refunds:</strong> {payment.refunds.map((refund) => `${titleCase(refund.status)} ${rupees(refund.amountPaise)}`).join(', ')}</p>}
                                         </div>
                                     ))}
                                 </div>
-                                <div className="mt-4 flex gap-2">
+                                <div className="mt-4 flex flex-wrap gap-2">
                                     <button
-                                        onClick={() => void downloadInvoice(inspectingOrder.id)}
-                                        className="flex items-center gap-2 rounded-sm border border-gold-500/30 bg-carbon px-3 py-2 text-xs text-gold-300 hover:border-gold-400"
+                                        type="button"
+                                        disabled={busy !== null}
+                                        onClick={() => downloadInvoice(detail.id)}
+                                        className="flex items-center gap-2 rounded-sm border border-gold-500/30 bg-carbon px-3 py-2 text-xs text-gold-300 hover:border-gold-400 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
-                                        <IconDownload size={14} /> Download Tax Invoice
+                                        <IconDownload size={14} /> {busy === 'invoice' ? 'Preparing invoice…' : 'Download Invoice'}
                                     </button>
-                                    {inspectingOrder.status === 'CONFIRMED' && <button onClick={() => void transition('PROCESSING')} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian">Start processing</button>}
-                                    {inspectingOrder.status === 'PROCESSING' && <button onClick={() => void createShipment()} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian">Create shipment</button>}
+                                    {detail.status === 'CONFIRMED' && canTransition && (
+                                        <button type="button" disabled={busy !== null} onClick={() => transition('PROCESSING')} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                            {busy === 'transition' ? 'Updating…' : 'Start processing'}
+                                        </button>
+                                    )}
+                                    {detail.status === 'PROCESSING' && canShip && !activeShipment && form?.kind !== 'shipment' && (
+                                        <button type="button" disabled={busy !== null} onClick={() => setForm({ kind: 'shipment', carrier: '' })} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                            Create shipment
+                                        </button>
+                                    )}
+                                    {canCancel && canAdminCancelOrder(detail) && form?.kind !== 'cancel' && (
+                                        <button
+                                            type="button"
+                                            disabled={busy !== null}
+                                            onClick={() => setForm({ kind: 'cancel', reason: '', error: '' })}
+                                            className={`${actionButton} border-red-500/40 text-red-300 hover:border-red-400`}
+                                        >
+                                            Cancel order
+                                        </button>
+                                    )}
                                 </div>
+                                {form?.kind === 'cancel' && (
+                                    <form
+                                        role="alertdialog"
+                                        aria-labelledby="cancel-order-title"
+                                        aria-describedby="cancel-order-summary"
+                                        noValidate
+                                        className="mt-4 space-y-3 rounded-sm border border-red-500/40 bg-red-950/20 p-4 text-xs text-cream/80"
+                                        onSubmit={(event) => {
+                                            event.preventDefault();
+                                            submitCancel(form.reason);
+                                        }}
+                                    >
+                                        <h5 id="cancel-order-title" className="text-sm font-bold text-red-200">Cancel order {detail.orderNumber}?</h5>
+                                        <div id="cancel-order-summary" className="space-y-1">
+                                            {cancellationRefundPaise(detail) > 0 ? (
+                                                detail.hdfcOrderId ? (
+                                                    <p>The customer will be refunded <strong className="text-cream">{rupees(cancellationRefundPaise(detail))}</strong> through HDFC automatically.</p>
+                                                ) : (
+                                                    <p>This is a legacy (pre-HDFC) payment of <strong className="text-cream">{rupees(cancellationRefundPaise(detail))}</strong>; refund it manually.</p>
+                                                )
+                                            ) : (
+                                                <p>No captured payment remains to refund.</p>
+                                            )}
+                                            <p>Its stock goes back to inventory and the customer is notified. This cannot be undone.</p>
+                                        </div>
+                                        <label className="block">
+                                            Reason (required, kept in the audit log)
+                                            <textarea
+                                                value={form.reason}
+                                                maxLength={500}
+                                                required
+                                                onChange={(event) => setForm({ ...form, reason: event.target.value, error: '' })}
+                                                className={`${textareaStyle} mt-1`}
+                                                aria-invalid={Boolean(form.error)}
+                                                aria-describedby={form.error ? 'cancel-order-error' : undefined}
+                                                autoFocus
+                                            />
+                                        </label>
+                                        {form.error && <p id="cancel-order-error" className="text-red-300" role="alert">{form.error}</p>}
+                                        <div className="flex flex-wrap gap-2">
+                                            <button type="submit" disabled={busy !== null} className="rounded-sm bg-red-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                                {busy === 'cancel' ? 'Cancelling…' : 'Cancel order and refund'}
+                                            </button>
+                                            <button type="button" disabled={busy !== null} onClick={() => setForm(null)} className={`${actionButton} border-gold-500/30 text-cream/70`}>
+                                                Keep order
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
+                                {form?.kind === 'shipment' && (
+                                    <form
+                                        className="mt-4 space-y-3 border-t border-gold-500/10 pt-4"
+                                        onSubmit={(event) => {
+                                            event.preventDefault();
+                                            submitShipment(form.carrier);
+                                        }}
+                                    >
+                                        <label className="block text-xs text-cream/70">
+                                            Carrier (optional)
+                                            <input
+                                                value={form.carrier}
+                                                maxLength={100}
+                                                onChange={(event) => setForm({ ...form, carrier: event.target.value })}
+                                                className={`${inputStyle} mt-1`}
+                                                placeholder="e.g. Blue Dart"
+                                                autoFocus
+                                            />
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <button type="submit" disabled={busy !== null} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                                {busy === 'shipment' ? 'Creating…' : 'Create shipment'}
+                                            </button>
+                                            <button type="button" disabled={busy !== null} onClick={() => setForm(null)} className={`${actionButton} border-gold-500/30 text-cream/70`}>
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </form>
+                                )}
                             </div>
                         </div>
 
-                        {(inspectingOrder.shipments || []).length > 0 && (
+                        {(detail.shipments || []).length > 0 && (
                             <section className="mt-6 border border-gold-500/15 bg-obsidian/40 p-4">
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-gold-400">Shipments</h4>
-                                {(inspectingOrder.shipments || []).map((shipment) => (
-                                    <div key={shipment.id} className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-cream/70">
-                                        <span>{shipment.carrier || shipment.provider} · {shipment.trackingNumber || 'Tracking pending'} · {titleCase(shipment.status)}</span>
-                                        {shipment.status !== 'DELIVERED' && <button onClick={() => void addTracking(shipment.id)} className="border border-gold-500/30 px-3 py-2 text-gold-300">Add tracking update</button>}
-                                    </div>
-                                ))}
+                                {(detail.shipments || []).map((shipment) => {
+                                    const nextStatuses = nextShipmentStatuses(shipment.status);
+                                    const editing = form?.kind === 'tracking' && form.shipmentId === shipment.id ? form : null;
+                                    return (
+                                        <div key={shipment.id} className="mt-3 text-xs text-cream/70">
+                                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <span>{shipment.carrier || shipment.provider} · {shipment.trackingNumber || 'Tracking pending'} · {titleCase(shipment.status)}</span>
+                                                {canTrack && nextStatuses.length > 0 && !editing && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={busy !== null}
+                                                        onClick={() => setForm({ kind: 'tracking', shipmentId: shipment.id, status: nextStatuses[0], note: '' })}
+                                                        className={`${actionButton} border-gold-500/30 text-gold-300`}
+                                                    >
+                                                        Add tracking update
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {editing && (
+                                                <form
+                                                    className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+                                                    onSubmit={(event) => {
+                                                        event.preventDefault();
+                                                        submitTracking(shipment.id, editing.status, editing.note);
+                                                    }}
+                                                >
+                                                    <label className="block">
+                                                        New status
+                                                        <select
+                                                            value={editing.status}
+                                                            onChange={(event) => setForm({ ...editing, status: event.target.value })}
+                                                            className={`${inputStyle} mt-1`}
+                                                        >
+                                                            {nextStatuses.map((status) => (
+                                                                <option key={status} value={status}>{titleCase(status)}</option>
+                                                            ))}
+                                                        </select>
+                                                    </label>
+                                                    <label className="block">
+                                                        Note (optional)
+                                                        <input
+                                                            value={editing.note}
+                                                            maxLength={500}
+                                                            onChange={(event) => setForm({ ...editing, note: event.target.value })}
+                                                            className={`${inputStyle} mt-1`}
+                                                        />
+                                                    </label>
+                                                    <div className="flex gap-2">
+                                                        <button type="submit" disabled={busy !== null} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                                            {busy === 'tracking' ? 'Saving…' : 'Save'}
+                                                        </button>
+                                                        <button type="button" disabled={busy !== null} onClick={() => setForm(null)} className={`${actionButton} border-gold-500/30 text-cream/70`}>
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </section>
                         )}
 
-                        {(inspectingOrder.returns || []).length > 0 && (
+                        {(detail.returns || []).length > 0 && (
                             <section className="mt-6 border border-gold-500/15 bg-obsidian/40 p-4">
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-gold-400">Returns</h4>
-                                {(inspectingOrder.returns || []).map((item) => (
-                                    <div key={item.id} className="mt-3 border-t border-gold-500/10 pt-3 text-xs text-cream/70">
-                                        <p>{titleCase(item.status)} · {item.reason}</p>
-                                        <div className="mt-2 flex flex-wrap gap-2">
-                                            {item.status === 'REQUESTED' && <><button onClick={() => void reviewReturn(item.id, 'APPROVED')} className="border border-emerald-500/30 px-3 py-2 text-emerald-300">Approve</button><button onClick={() => void reviewReturn(item.id, 'REJECTED')} className="border border-red-500/30 px-3 py-2 text-red-300">Reject</button></>}
-                                            {item.status === 'APPROVED' && <button onClick={() => void reviewReturn(item.id, 'RECEIVED')} className="border border-gold-500/30 px-3 py-2 text-gold-300">Mark received</button>}
-                                            {item.status === 'RECEIVED' && session?.roles.some((role) => ['ADMIN', 'SUPPORT_AGENT'].includes(role)) && <button onClick={() => void refundReturn(item.id)} className="bg-gold-400 px-3 py-2 font-bold text-obsidian">Create refund</button>}
+                                {(detail.returns || []).map((item) => {
+                                    const reviewing = form?.kind === 'review' && form.returnId === item.id ? form : null;
+                                    const refunding = form?.kind === 'refund' && form.returnId === item.id ? form : null;
+                                    const refundPayment = detail.payments?.find((payment) => payment.status === 'CAPTURED' || payment.status === 'REFUNDED');
+                                    const openReview = (status: 'APPROVED' | 'REJECTED' | 'RECEIVED') =>
+                                        setForm({ kind: 'review', returnId: item.id, status, note: '', restock: false });
+                                    return (
+                                        <div key={item.id} className="mt-3 border-t border-gold-500/10 pt-3 text-xs text-cream/70">
+                                            <p>{titleCase(item.status)} · {item.reason}</p>
+                                            {item.reviewNote && <p className="mt-1 text-cream/50">Note: {item.reviewNote}</p>}
+                                            {!reviewing && !refunding && (
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    {item.status === 'REQUESTED' && canReviewReturns && (
+                                                        <>
+                                                            <button type="button" disabled={busy !== null} onClick={() => openReview('APPROVED')} className={`${actionButton} border-emerald-500/30 text-emerald-300`}>Approve</button>
+                                                            <button type="button" disabled={busy !== null} onClick={() => openReview('REJECTED')} className={`${actionButton} border-red-500/30 text-red-300`}>Reject</button>
+                                                        </>
+                                                    )}
+                                                    {item.status === 'APPROVED' && canReviewReturns && (
+                                                        <button type="button" disabled={busy !== null} onClick={() => openReview('RECEIVED')} className={`${actionButton} border-gold-500/30 text-gold-300`}>Mark received</button>
+                                                    )}
+                                                    {item.status === 'RECEIVED' && canRefund && refundPayment && (
+                                                        <button
+                                                            type="button"
+                                                            disabled={busy !== null}
+                                                            onClick={() => setForm({ kind: 'refund', returnId: item.id, amount: refundAmountInput(refundablePaise(refundPayment)), error: '' })}
+                                                            className="rounded-sm bg-gold-400 px-3 py-2 font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50"
+                                                        >
+                                                            Create refund
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {reviewing && (
+                                                <form
+                                                    className="mt-3 space-y-3"
+                                                    onSubmit={(event) => {
+                                                        event.preventDefault();
+                                                        submitReview(item.id, reviewing.status, reviewing.note, reviewing.restock);
+                                                    }}
+                                                >
+                                                    <label className="block">
+                                                        Review note (optional)
+                                                        <textarea
+                                                            value={reviewing.note}
+                                                            maxLength={1000}
+                                                            onChange={(event) => setForm({ ...reviewing, note: event.target.value })}
+                                                            className={`${textareaStyle} mt-1`}
+                                                        />
+                                                    </label>
+                                                    {reviewing.status === 'RECEIVED' && canRestock && (
+                                                        <label className="flex items-center gap-2">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={reviewing.restock}
+                                                                onChange={(event) => setForm({ ...reviewing, restock: event.target.checked })}
+                                                            />
+                                                            Add the returned items back to stock
+                                                        </label>
+                                                    )}
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            type="submit"
+                                                            disabled={busy !== null}
+                                                            className={`rounded-sm px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50 ${reviewing.status === 'REJECTED' ? 'bg-red-400 text-obsidian' : 'bg-gold-400 text-obsidian'}`}
+                                                        >
+                                                            {busy === 'review'
+                                                                ? 'Saving…'
+                                                                : reviewing.status === 'APPROVED'
+                                                                  ? 'Approve return'
+                                                                  : reviewing.status === 'REJECTED'
+                                                                    ? 'Reject return'
+                                                                    : 'Mark received'}
+                                                        </button>
+                                                        <button type="button" disabled={busy !== null} onClick={() => setForm(null)} className={`${actionButton} border-gold-500/30 text-cream/70`}>
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                            )}
+                                            {refunding && refundPayment && (
+                                                <form
+                                                    className="mt-3 space-y-3"
+                                                    noValidate
+                                                    onSubmit={(event) => {
+                                                        event.preventDefault();
+                                                        submitRefund(item.id, refunding.amount);
+                                                    }}
+                                                >
+                                                    <label className="block">
+                                                        Refund amount (₹) · up to {rupees(refundablePaise(refundPayment))}
+                                                        <input
+                                                            value={refunding.amount}
+                                                            inputMode="decimal"
+                                                            onChange={(event) => setForm({ ...refunding, amount: event.target.value, error: '' })}
+                                                            className={`${inputStyle} mt-1`}
+                                                            aria-invalid={Boolean(refunding.error)}
+                                                            aria-describedby={refunding.error ? `refund-error-${item.id}` : undefined}
+                                                            autoFocus
+                                                        />
+                                                    </label>
+                                                    {refunding.error && <p id={`refund-error-${item.id}`} className="text-red-300" role="alert">{refunding.error}</p>}
+                                                    <div className="flex gap-2">
+                                                        <button type="submit" disabled={busy !== null} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                                            {busy === 'refund' ? 'Refunding…' : 'Refund'}
+                                                        </button>
+                                                        <button type="button" disabled={busy !== null} onClick={() => setForm(null)} className={`${actionButton} border-gold-500/30 text-cream/70`}>
+                                                            Cancel
+                                                        </button>
+                                                    </div>
+                                                </form>
+                                            )}
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </section>
                         )}
 
@@ -717,7 +1175,7 @@ const OrdersAdmin = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gold-500/10">
-                                        {(inspectingOrder.itemsSnapshot || []).map((item, idx) => (
+                                        {(detail.itemsSnapshot || []).map((item, idx) => (
                                             <tr key={idx}>
                                                 <td data-label="Product" className="p-3">
                                                     <div className="flex min-w-[240px] gap-3">
@@ -769,6 +1227,8 @@ const OrdersAdmin = () => {
                                 </table>
                             </div>
                         </div>
+                        </>
+                        )}
                     </div>
                 </div>
                 </AdminModalLayer>
@@ -800,13 +1260,14 @@ interface VariantDraft {
 
 interface CatalogueImportProgress {
     fileName: string;
-    phase: 'categories' | 'products' | 'rollback' | 'refreshing';
+    phase: 'loading' | 'categories' | 'products' | 'rollback' | 'refreshing';
     detail: string;
     completedProducts: number;
     totalProducts: number;
 }
 
 const catalogueImportPhaseLabel: Record<CatalogueImportProgress['phase'], string> = {
+    loading: 'Reading current catalogue',
     categories: 'Preparing categories',
     products: 'Importing catalogue',
     rollback: 'Reverting changes',
@@ -909,6 +1370,119 @@ const driveImageLinks = (value: string): string[] =>
 
 const categoryNameKey = (name: string): string => name.trim().replace(/\s+/g, ' ').toLowerCase();
 
+// Limits the API enforces; checking them first avoids a half-saved product.
+const MAX_PRODUCT_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_PRODUCT_VIDEO_BYTES = 25 * 1024 * 1024;
+const MAX_PRICE_PAISE = 2_147_483_647;
+const UPLOAD_CONCURRENCY = 3;
+
+// Identifies a chosen file across form reads, which may hand back new File objects.
+const uploadKey = (productId: string, scope: string, file: File): string =>
+    [productId, scope, file.name, file.size, file.lastModified].join('|');
+
+const megabytes = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+/** Image alt text is limited to 180 characters by the API. */
+const imageAltText = (productName: string, optionLabel?: string): string => {
+    const text = optionLabel ? `${productName} — ${optionLabel}` : productName;
+    return text.length <= 180 ? text : `${text.slice(0, 179).trimEnd()}…`;
+};
+
+const sameIds = (left: string[], right: string[]): boolean =>
+    left.length === right.length && [...left].sort().join(',') === [...right].sort().join(',');
+
+/** Runs every task with at most `limit` in flight, then throws the first failure. */
+const runLimited = async (tasks: Array<() => Promise<void>>, limit = UPLOAD_CONCURRENCY): Promise<void> => {
+    const failures: unknown[] = [];
+    let next = 0;
+    const worker = async () => {
+        while (next < tasks.length) {
+            const task = tasks[next];
+            next += 1;
+            try {
+                await task();
+            } catch (caught) {
+                failures.push(caught);
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+    if (failures.length) throw failures[0];
+};
+
+/**
+ * Imports a Drive image, or reuses the one the product already has from that Drive file.
+ * A reused image keeps being shared when it was shared (or the request is shared);
+ * otherwise it is also linked to the requested options. `previousVariantIds` lets an
+ * import rollback restore its original links instead of deleting it.
+ */
+const importDriveImage = async (
+    productId: string,
+    driveUrl: string,
+    metadata: { variantIds: string[]; altText: string; sortOrder: number },
+): Promise<{ image: Product['images'][number]; previousVariantIds?: string[] }> => {
+    const image = await uploadGoogleDriveImage(productId, driveUrl, {
+        ...(metadata.variantIds.length ? { variantIds: metadata.variantIds } : {}),
+        altText: metadata.altText,
+        sortOrder: metadata.sortOrder,
+    });
+    if (!image.reused) return { image };
+    const previousVariantIds = productImageVariantIds(image);
+    const variantIds = previousVariantIds.length && metadata.variantIds.length
+        ? [...new Set([...previousVariantIds, ...metadata.variantIds])]
+        : [];
+    if (sameIds(previousVariantIds, variantIds)) return { image, previousVariantIds };
+    return { image: await api.updateProductImage(productId, image.id, { variantIds }), previousVariantIds };
+};
+
+const productFormProblem = (input: {
+    name: string;
+    material: string;
+    drafts: VariantDraft[];
+    sharedImages: File[];
+    video: File | null;
+}): string | null => {
+    if (!input.name) return 'Product name is required.';
+    if (input.name.length > 180) return 'Product name must be 180 characters or fewer.';
+    if (input.material.length > 120) return 'Material must be 120 characters or fewer.';
+    if (input.drafts.length === 0 || !input.drafts.some((draft) => draft.isActive)) {
+        return 'Add at least one active product option.';
+    }
+    const skuOwners = new Map<string, number>();
+    for (const [index, draft] of input.drafts.entries()) {
+        const option = `option ${index + 1}`;
+        const sku = draft.sku.trim().toUpperCase();
+        if (!sku) return `SKU is required for ${option}.`;
+        const previousIndex = skuOwners.get(sku);
+        if (previousIndex !== undefined) {
+            return `SKU “${sku}” is used by options ${previousIndex + 1} and ${index + 1}. Each SKU must be unique.`;
+        }
+        skuOwners.set(sku, index);
+        if (draft.packQuantity && (!/^\d+$/.test(draft.packQuantity) || Number(draft.packQuantity) < 1)) {
+            return `Pack quantity for ${option} must be a positive whole number.`;
+        }
+        const price = rupeesInputToPaise(draft.priceRupees);
+        if (!draft.priceRupees.trim() || !Number.isFinite(price) || price < 0 || price > MAX_PRICE_PAISE) {
+            return `Enter a valid price for ${option}.`;
+        }
+        if (draft.compareAtPriceRupees.trim()) {
+            const compareAt = rupeesInputToPaise(draft.compareAtPriceRupees);
+            if (!Number.isFinite(compareAt) || compareAt < 0 || compareAt > MAX_PRICE_PAISE) {
+                return `Enter a valid compare-at price for ${option}.`;
+            }
+            if (compareAt < price) return `Compare-at price for ${option} cannot be lower than its price.`;
+        }
+        const largeImage = draft.images.find((file) => file.size > MAX_PRODUCT_IMAGE_BYTES);
+        if (largeImage) return `“${largeImage.name}” for ${option} is ${megabytes(largeImage.size)}. Images must be 8 MB or smaller.`;
+    }
+    const largeShared = input.sharedImages.find((file) => file.size > MAX_PRODUCT_IMAGE_BYTES);
+    if (largeShared) return `“${largeShared.name}” is ${megabytes(largeShared.size)}. Images must be 8 MB or smaller.`;
+    if (input.video && input.video.size > MAX_PRODUCT_VIDEO_BYTES) {
+        return `The product video is ${megabytes(input.video.size)}. Videos must be 25 MB or smaller.`;
+    }
+    return null;
+};
+
 const createVariantDraft = (variant?: ProductVariant): VariantDraft => ({
     key: variant?.id || `new-variant-${++variantDraftCounter}`,
     id: variant?.id,
@@ -947,16 +1521,26 @@ const assignmentMode = (variantIds: string[], drafts: VariantDraft[]): string =>
 
 const PRODUCT_PAGE_SIZES = [20, 50, 100] as const;
 type ProductPageSize = (typeof PRODUCT_PAGE_SIZES)[number];
+// The product search is sent to the server once typing pauses this long.
+const PRODUCT_SEARCH_DEBOUNCE_MS = 300;
 
 const CatalogueAdmin = () => {
     const [activeTab, setActiveTab] = useState<'products' | 'categories'>('products');
+    // The current page of products; the server filters, searches and pages the catalogue.
     const [products, setProducts] = useState<Product[]>([]);
+    const [productTotal, setProductTotal] = useState(0);
+    const [productsLoaded, setProductsLoaded] = useState(false);
+    const [productsLoading, setProductsLoading] = useState(true);
+    // Bumped to fetch the current page again (after an import, a delete or a new product).
+    const [productsVersion, setProductsVersion] = useState(0);
     const [categories, setCategories] = useState<Category[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
-    const [statusFilter, setStatusFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState<Product['status'] | ''>('');
     const [productPage, setProductPage] = useState(1);
     const [productPageSize, setProductPageSize] = useState<ProductPageSize>(20);
+    const [exportingCatalogue, setExportingCatalogue] = useState(false);
 
     const [openProductModal, setOpenProductModal] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -973,21 +1557,36 @@ const CatalogueAdmin = () => {
     const [bulkImporting, setBulkImporting] = useState(false);
     const [bulkImportProgress, setBulkImportProgress] = useState<CatalogueImportProgress | null>(null);
     const [bulkImportErrors, setBulkImportErrors] = useState<string[]>([]);
-    const productDialogRef = useDialog<HTMLFormElement>(openProductModal, () => {
+    // Categories have loaded; an import needs them to match category names.
+    const [catalogueLoaded, setCatalogueLoaded] = useState(false);
+    // The variant or image being changed in the open product
+    // (`variant:<key>` / `image:<id>` while deleting, `image-order:<id>` while moving).
+    const [busyItem, setBusyItem] = useState<string | null>(null);
+    // Announces the result of moving an image for screen readers (and shows it beside the gallery).
+    const [imageOrderNotice, setImageOrderNotice] = useState('');
+    // Files and Drive links already uploaded by an earlier, partly failed save of the open
+    // product; a retry skips them instead of storing duplicates.
+    const uploadedFilesRef = React.useRef(new Set<string>());
+    const importedDriveLinksRef = React.useRef(new Set<string>());
+    const closeProductModal = () => {
+        // Closing mid-save would hide a partial failure and invite a duplicate retry.
+        if (saving) return;
         setOpenProductModal(false);
         setEditingProduct(null);
-    });
+    };
+    const productDialogRef = useDialog<HTMLFormElement>(openProductModal, closeProductModal);
     const categoryDialogRef = useDialog<HTMLFormElement>(openCategoryModal, () => {
+        if (saving) return;
         setOpenCategoryModal(false);
         setEditingCategory(null);
     });
 
-    const load = (signal?: AbortSignal) =>
-        Promise.all([api.adminProducts(signal), api.adminCategories(signal)])
-            .then(([items, cats]) => {
+    const loadCategories = (signal?: AbortSignal) =>
+        api.adminCategories(signal)
+            .then((cats) => {
                 if (signal?.aborted) return;
-                setProducts(items);
                 setCategories(cats);
+                setCatalogueLoaded(true);
             })
             .catch((caught) => {
                 if (!signal?.aborted) setError(caught instanceof Error ? caught.message : 'Unable to load catalogue.');
@@ -995,14 +1594,80 @@ const CatalogueAdmin = () => {
 
     useEffect(() => {
         const controller = new AbortController();
-        void load(controller.signal);
+        void loadCategories(controller.signal);
         return () => controller.abort();
     }, []);
 
+    const reloadProducts = () => setProductsVersion((version) => version + 1);
+
+    // Search typing settles before it reaches the server; a new search starts from page 1.
+    useEffect(() => {
+        const query = searchQuery.trim();
+        if (query === debouncedSearch) return;
+        const timer = window.setTimeout(() => {
+            setDebouncedSearch(query);
+            setProductPage(1);
+        }, PRODUCT_SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(timer);
+    }, [searchQuery, debouncedSearch]);
+
+    // Fetches the page being viewed; a newer request aborts the one still in flight.
+    useEffect(() => {
+        const controller = new AbortController();
+        setProductsLoading(true);
+        api.adminProducts(
+            { page: productPage, limit: productPageSize, q: debouncedSearch, status: statusFilter, category: categoryFilter },
+            controller.signal,
+        )
+            .then((result) => {
+                if (controller.signal.aborted) return;
+                // Deletes can leave this page past the end; show the last page instead.
+                const lastPage = Math.max(1, Math.ceil(result.total / productPageSize));
+                if (productPage > lastPage) {
+                    setProductPage(lastPage);
+                    return;
+                }
+                setProducts(result.items);
+                setProductTotal(result.total);
+                setProductsLoaded(true);
+                setProductsLoading(false);
+            })
+            .catch((caught) => {
+                if (controller.signal.aborted) return;
+                setError(caught instanceof Error ? caught.message : 'Unable to load products.');
+                setProductsLoading(false);
+            });
+        return () => controller.abort();
+    }, [productPage, productPageSize, debouncedSearch, statusFilter, categoryFilter, productsVersion]);
+
+    // Updates a product on the current page in place, so saving keeps the page and its position.
+    const upsertProduct = (product: Product) =>
+        setProducts((current) => current.map((item) => (item.id === product.id ? product : item)));
+
+    // Refreshes one product in the list instead of reloading the whole catalogue.
+    const refreshProduct = async (productId: string): Promise<Product | null> => {
+        try {
+            const product = await api.adminProduct(productId);
+            upsertProduct(product);
+            return product;
+        } catch {
+            reloadProducts();
+            return null;
+        }
+    };
+
+    const refreshCatalogue = async () => {
+        reloadProducts();
+        await loadCategories();
+    };
+
     const openProductEditor = (product: Product | null) => {
         setEditingProduct(product);
+        setImageOrderNotice('');
         setVariantDrafts(product?.variants.length ? product.variants.map(createVariantDraft) : [createVariantDraft()]);
         setImageAssignments(Object.fromEntries((product?.images || []).map((image) => [image.id, productImageVariantIds(image)])));
+        uploadedFilesRef.current = new Set();
+        importedDriveLinksRef.current = new Set();
         setError('');
         setOpenProductModal(true);
     };
@@ -1023,148 +1688,194 @@ const CatalogueAdmin = () => {
         setVariantDrafts((current) => current.map((draft) => (draft.key === key ? { ...draft, ...update } : draft)));
     };
 
-    // Create or Edit Product Submit
+    // Create or edit a product. Every step is safe to retry after a failure part-way through:
+    // the created product and options keep their ids, and finished uploads are skipped.
     const handleProductSubmit = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        setSaving(true);
+        if (saving) return;
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
         setError('');
         setSuccessMessage('');
-        const form = new FormData(event.currentTarget);
 
+        const name = String(form.get('name') || '').trim();
+        const categoryId = String(form.get('categoryId') || '');
+        const description = String(form.get('description') || '');
+        const material = String(form.get('material') || '').trim();
+        const targetStatus = String(form.get('status') || 'DRAFT') as Product['status'];
+        const sharedImageFiles = form.getAll('images').filter((file): file is File => file instanceof File && file.size > 0);
+        const videoEntry = form.get('videoFile');
+        const videoFile = videoEntry instanceof File && videoEntry.size > 0 ? videoEntry : null;
+        const problem = productFormProblem({ name, material, drafts: variantDrafts, sharedImages: sharedImageFiles, video: videoFile });
+        if (problem) {
+            setError(problem);
+            return;
+        }
+
+        setSaving(true);
+        const isNewProduct = !editingProduct;
+        let product: Product | null = editingProduct;
+        let productSaved = false;
         try {
-            let productId: string;
-            let productName: string;
-            if (variantDrafts.length === 0 || !variantDrafts.some((variant) => variant.isActive)) {
-                throw new Error('Add at least one active product option.');
-            }
-            const skuOwners = new Map<string, number>();
-            for (const [index, variant] of variantDrafts.entries()) {
-                const sku = variant.sku.trim().toUpperCase();
-                if (!sku) {
-                    throw new Error(`SKU is required for option ${index + 1}.`);
-                }
-                if (variant.packQuantity && (!/^\d+$/.test(variant.packQuantity) || Number(variant.packQuantity) < 1)) {
-                    throw new Error(`Pack quantity for option ${index + 1} must be a positive whole number.`);
-                }
-                const previousIndex = skuOwners.get(sku);
-                if (previousIndex !== undefined) {
-                    throw new Error(`SKU “${sku}” is used by options ${previousIndex + 1} and ${index + 1}. Each SKU must be unique.`);
-                }
-                skuOwners.set(sku, index);
-            }
+            // A product being published stays unpublished until its options and media are
+            // saved, so shoppers never see a half-built product.
+            const publishAtEnd = targetStatus === 'PUBLISHED' && product?.status !== 'PUBLISHED';
+            const productInput = {
+                categoryId,
+                name,
+                description,
+                shortDescription: productSummary(description),
+                material,
+                status: publishAtEnd ? (product?.status ?? 'DRAFT') : targetStatus,
+            };
+            product = product
+                ? await api.updateProduct(product.id, { ...productInput, slug: product.slug })
+                : await api.createProduct({ ...productInput, slug: slugify(name) });
+            productSaved = true;
+            const productId = product.id;
+            const productName = product.name;
+            // A retry now updates this product instead of creating a second one.
+            setEditingProduct(product);
 
-            if (editingProduct) {
-                const product = await api.updateProduct(editingProduct.id, {
-                    name: String(form.get('name')),
-                    slug: editingProduct.slug,
-                    categoryId: String(form.get('categoryId')),
-                    description: String(form.get('description')),
-                    shortDescription: productSummary(String(form.get('description'))),
-                    material: String(form.get('material')),
-                    status: String(form.get('status')),
-                });
-                productId = product.id;
-                productName = product.name;
-            } else {
-                const product = await api.createProduct({
-                    categoryId: String(form.get('categoryId')),
-                    name: String(form.get('name')),
-                    slug: slugify(String(form.get('name'))),
-                    shortDescription: productSummary(String(form.get('description'))),
-                    description: String(form.get('description')),
-                    material: String(form.get('material')),
-                    status: String(form.get('status')),
-                });
-                productId = product.id;
-                productName = product.name;
-            }
-
+            const drafts = variantDrafts.map((draft) => ({ ...draft }));
             const savedVariants = new Map<string, ProductVariant>();
-            for (const draft of variantDrafts) {
+            // Sequential, so new options keep the order they were added in.
+            for (const draft of drafts) {
                 const color = draft.color.trim();
                 const input = {
                     sku: draft.sku.trim().toUpperCase(),
                     alias: draft.alias.trim() || null,
                     pricePaise: rupeesInputToPaise(draft.priceRupees),
-                    compareAtPricePaise: draft.compareAtPriceRupees
+                    compareAtPricePaise: draft.compareAtPriceRupees.trim()
                         ? rupeesInputToPaise(draft.compareAtPriceRupees)
                         : null,
                     attributes: draft.attributes,
-                    ...(color ? { color, colorHex: draft.colorHex } : {}),
+                    // null clears a colour the option used to have.
+                    color: color || null,
+                    ...(color ? { colorHex: draft.colorHex } : {}),
                     size: draft.size.trim() || null,
                     packQuantity: draft.packQuantity ? Number(draft.packQuantity) : null,
                     isActive: draft.isActive,
                 };
                 const savedVariant = draft.id ? await api.updateVariant(draft.id, input) : await api.createVariant(productId, input);
+                draft.id = savedVariant.id;
+                draft.attributes = savedVariant.attributes || {};
                 savedVariants.set(draft.key, savedVariant);
+                // A retry updates this option instead of creating it again with the same SKU.
+                updateVariantDraft(draft.key, { id: savedVariant.id, attributes: draft.attributes });
             }
 
-            for (const draft of variantDrafts) {
+            const savedVariantIds = new Set(drafts.map((draft) => draft.id!));
+            for (const image of product.images) {
+                // Images uploaded by an earlier attempt of this save have no assignment yet.
+                if (!(image.id in imageAssignments)) continue;
+                const variantIds = imageAssignments[image.id].filter((id) => savedVariantIds.has(id));
+                if (!sameIds(variantIds, productImageVariantIds(image))) {
+                    await api.updateProductImage(productId, image.id, { variantIds });
+                }
+            }
+
+            const uploads: Array<() => Promise<void>> = [];
+            const uploadImage = (file: File, scope: string, altText: string, sortOrder: number, variantIds?: string[]) => {
+                const doneKey = uploadKey(productId, scope, file);
+                if (uploadedFilesRef.current.has(doneKey)) return;
+                uploads.push(async () => {
+                    const imageForm = new FormData();
+                    imageForm.set('file', file);
+                    if (variantIds) imageForm.set('variantIds', JSON.stringify(variantIds));
+                    imageForm.set('altText', altText);
+                    imageForm.set('sortOrder', String(sortOrder));
+                    await api.uploadProductImage(productId, imageForm);
+                    uploadedFilesRef.current.add(doneKey);
+                });
+            };
+            const importDriveLink = (
+                driveUrl: string,
+                scope: string,
+                metadata: { variantIds: string[]; altText: string; sortOrder: number },
+                onImported: () => void,
+            ) => {
+                const doneKey = `${productId}|${scope}|${driveUrl}`;
+                if (importedDriveLinksRef.current.has(doneKey)) return;
+                uploads.push(async () => {
+                    await importDriveImage(productId, driveUrl, metadata);
+                    importedDriveLinksRef.current.add(doneKey);
+                    onImported();
+                });
+            };
+
+            for (const draft of drafts) {
                 const savedVariant = savedVariants.get(draft.key)!;
                 const color = draft.color.trim();
                 const variantIds = draft.imageScope === 'color' && color
-                    ? variantDrafts
+                    ? drafts
                         .filter((candidate) => candidate.color.trim().toLocaleLowerCase() === color.toLocaleLowerCase())
-                        .map((candidate) => savedVariants.get(candidate.key)!.id)
+                        .map((candidate) => candidate.id!)
                     : [savedVariant.id];
-                for (const [index, file] of draft.images.entries()) {
-                    const imageForm = new FormData();
-                    imageForm.set('file', file);
-                    imageForm.set('variantIds', JSON.stringify(variantIds));
-                    imageForm.set('altText', `${productName} — ${variantOptionLabel(savedVariant)}`);
-                    imageForm.set('sortOrder', String(index));
-                    await api.uploadProductImage(productId, imageForm);
-                }
-
-                for (const [index, driveUrl] of driveImageLinks(draft.driveImageUrls).entries()) {
-                    await uploadGoogleDriveImage(productId, driveUrl, {
-                        variantIds,
-                        altText: `${productName} — ${variantOptionLabel(savedVariant)}`,
-                        sortOrder: draft.images.length + index,
-                    });
-                }
+                const altText = imageAltText(productName, variantOptionLabel(savedVariant));
+                draft.images.forEach((file, index) => uploadImage(file, draft.key, altText, index, variantIds));
+                driveImageLinks(draft.driveImageUrls).forEach((driveUrl, index) => importDriveLink(
+                    driveUrl,
+                    draft.key,
+                    { variantIds, altText, sortOrder: draft.images.length + index },
+                    () => setVariantDrafts((current) => current.map((item) => item.key === draft.key
+                        ? { ...item, driveImageUrls: driveImageLinks(item.driveImageUrls).filter((link) => link !== driveUrl).join('\n') }
+                        : item)),
+                ));
             }
 
-            if (editingProduct) {
-                for (const image of editingProduct.images) {
-                    const variantIds = [...(imageAssignments[image.id] ?? [])].sort();
-                    const existingVariantIds = [...productImageVariantIds(image)].sort();
-                    if (JSON.stringify(variantIds) !== JSON.stringify(existingVariantIds)) {
-                        await api.updateProductImage(productId, image.id, { variantIds });
+            sharedImageFiles.forEach((file, index) => uploadImage(file, 'shared', imageAltText(productName), index));
+            const sharedDriveField = formElement.elements.namedItem('driveImageUrls');
+            driveImageLinks(String(form.get('driveImageUrls') || '')).forEach((driveUrl, index) => importDriveLink(
+                driveUrl,
+                'shared',
+                { variantIds: [], altText: imageAltText(productName), sortOrder: sharedImageFiles.length + index },
+                () => {
+                    if (sharedDriveField instanceof HTMLTextAreaElement) {
+                        sharedDriveField.value = driveImageLinks(sharedDriveField.value).filter((link) => link !== driveUrl).join('\n');
                     }
-                }
-            }
+                },
+            ));
 
-            const imageFiles = form.getAll('images').filter((file): file is File => file instanceof File && file.size > 0);
-            for (const [index, file] of imageFiles.entries()) {
-                const imageForm = new FormData();
-                imageForm.set('file', file);
-                imageForm.set('altText', productName);
-                imageForm.set('sortOrder', String(index));
-                await api.uploadProductImage(productId, imageForm);
-            }
+            await runLimited(uploads);
+            const sharedImagesField = formElement.elements.namedItem('images');
+            if (sharedImagesField instanceof HTMLInputElement) sharedImagesField.value = '';
 
-            const sharedDriveLinks = driveImageLinks(String(form.get('driveImageUrls') || ''));
-            for (const [index, driveUrl] of sharedDriveLinks.entries()) {
-                await uploadGoogleDriveImage(productId, driveUrl, {
-                    altText: productName,
-                    sortOrder: imageFiles.length + index,
-                });
-            }
-
-            const videoFile = form.get('videoFile');
-            if (videoFile instanceof File && videoFile.size > 0) {
+            if (videoFile && !uploadedFilesRef.current.has(uploadKey(productId, 'video', videoFile))) {
                 const videoForm = new FormData();
                 videoForm.set('file', videoFile);
-                videoForm.set('altText', productName);
+                videoForm.set('altText', imageAltText(productName));
                 await api.uploadProductVideo(productId, videoForm);
+                uploadedFilesRef.current.add(uploadKey(productId, 'video', videoFile));
+                const videoField = formElement.elements.namedItem('videoFile');
+                if (videoField instanceof HTMLInputElement) videoField.value = '';
             }
-            setSuccessMessage(editingProduct ? 'Product updated successfully.' : 'New product created successfully.');
+
+            if (publishAtEnd) await api.updateProduct(productId, { status: 'PUBLISHED' });
+
+            setSuccessMessage(isNewProduct ? 'New product created successfully.' : 'Product updated successfully.');
             setOpenProductModal(false);
             setEditingProduct(null);
-            await load();
+            // A new product may belong on this page (or move others along), so fetch it again.
+            if (isNewProduct) reloadProducts();
+            else await refreshProduct(productId);
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Product save failed.');
+            const message = caught instanceof Error ? caught.message : 'Product save failed.';
+            setError(productSaved
+                ? `${message} Saved steps were kept; fix the problem and save again to finish.`
+                : message);
+            if (product) {
+                if (isNewProduct) reloadProducts();
+                // Show what was saved (new images, option ids) so the retry continues from there.
+                const fresh = await refreshProduct(product.id);
+                if (fresh) {
+                    setEditingProduct(fresh);
+                    setImageAssignments((current) => ({
+                        ...Object.fromEntries(fresh.images.map((image) => [image.id, productImageVariantIds(image)])),
+                        ...current,
+                    }));
+                }
+            }
         } finally {
             setSaving(false);
         }
@@ -1174,10 +1885,14 @@ const CatalogueAdmin = () => {
         if (!window.confirm(`Are you sure you want to delete product "${name}"?`)) return;
         try {
             await api.deleteProduct(productId);
+            setProducts((current) => current.filter((product) => product.id !== productId));
+            setProductTotal((current) => Math.max(0, current - 1));
             setSuccessMessage(`Product "${name}" deleted.`);
-            await load();
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'Product deletion failed.');
+        } finally {
+            // Refill the page from the next one; after a failure the product may or may not be gone.
+            reloadProducts();
         }
     };
 
@@ -1185,8 +1900,8 @@ const CatalogueAdmin = () => {
         if (!window.confirm(`Delete category “${name}”? It must not contain products.`)) return;
         try {
             await api.deleteCategory(categoryId);
+            setCategories((current) => current.filter((category) => category.id !== categoryId));
             setSuccessMessage(`Category “${name}” deleted.`);
-            await load();
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'Category deletion failed.');
         }
@@ -1200,11 +1915,102 @@ const CatalogueAdmin = () => {
             await api.deleteProductVideo(productId, videoId);
             setEditingProduct((current) => current ? { ...current, videos: current.videos.filter((video) => video.id !== videoId) } : null);
             setSuccessMessage('Product video removed. You can now upload an MP4 replacement.');
-            await load();
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'Could not remove the product video.');
         } finally {
             setSaving(false);
+        }
+    };
+
+    // Deleting an option or image takes effect at once (not on Save), so the editor, its
+    // image assignments and the list row are all updated to match.
+    const handleRemoveVariant = async (draft: VariantDraft) => {
+        const variantId = draft.id;
+        if (!variantId) {
+            setVariantDrafts((current) => current.filter((item) => item.key !== draft.key));
+            return;
+        }
+        const label = draft.color || draft.size || draft.sku;
+        if (!window.confirm(`Delete option “${label}” now? It is removed from the catalogue immediately, even if you close without saving.`)) return;
+        setBusyItem(`variant:${draft.key}`);
+        setError('');
+        try {
+            await api.deleteVariant(variantId);
+            setVariantDrafts((current) => current.filter((item) => item.key !== draft.key));
+            setImageAssignments((current) => Object.fromEntries(
+                Object.entries(current).map(([imageId, variantIds]) => [imageId, variantIds.filter((id) => id !== variantId)]),
+            ));
+            setEditingProduct((current) => current
+                ? {
+                    ...current,
+                    variants: current.variants.filter((variant) => variant.id !== variantId),
+                    images: current.images.map((image) => ({
+                        ...image,
+                        variantLinks: image.variantLinks?.filter((link) => link.variantId !== variantId),
+                    })),
+                }
+                : current);
+            setSuccessMessage(`Option “${label}” deleted.`);
+            if (editingProduct) void refreshProduct(editingProduct.id);
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Variant deletion failed.');
+        } finally {
+            setBusyItem(null);
+        }
+    };
+
+    const handleDeleteExistingImage = async (productId: string, imageId: string) => {
+        if (!window.confirm('Delete this product image now? It is removed from the storefront immediately.')) return;
+        setBusyItem(`image:${imageId}`);
+        setError('');
+        try {
+            await api.deleteProductImage(productId, imageId);
+            setEditingProduct((current) => current
+                ? { ...current, images: current.images.filter((image) => image.id !== imageId) }
+                : current);
+            setImageAssignments((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== imageId)));
+            void refreshProduct(productId);
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Image deletion failed.');
+        } finally {
+            setBusyItem(null);
+        }
+    };
+
+    // Moving an image saves the new order at once (not on Save): the gallery changes straight
+    // away and goes back if the server refuses the order.
+    const handleMoveImage = async (productId: string, imageId: string, offset: -1 | 1) => {
+        if (saving || busyItem !== null || editingProduct?.id !== productId) return;
+        const previous = editingProduct.images;
+        const from = previous.findIndex((image) => image.id === imageId);
+        const to = from + offset;
+        if (from < 0 || to < 0 || to >= previous.length) return;
+        const reordered = [...previous];
+        [reordered[from], reordered[to]] = [reordered[to], reordered[from]];
+        const optimistic = reordered.map((image, index) => ({ ...image, sortOrder: index }));
+        setBusyItem(`image-order:${imageId}`);
+        setError('');
+        setImageOrderNotice('Saving image order…');
+        setEditingProduct((current) => (current?.id === productId ? { ...current, images: optimistic } : current));
+        try {
+            const saved = await api.reorderProductImages(productId, optimistic.map((image) => image.id));
+            setEditingProduct((current) => {
+                if (current?.id !== productId) return current;
+                const currentById = new Map(current.images.map((image) => [image.id, image]));
+                return {
+                    ...current,
+                    images: saved.map((image) => ({ ...(currentById.get(image.id) ?? image), sortOrder: image.sortOrder })),
+                };
+            });
+            setImageOrderNotice(`Image moved to position ${to + 1} of ${previous.length}.`);
+            // Keeps the list row's thumbnail in step with the new first image.
+            void refreshProduct(productId);
+        } catch (caught) {
+            setEditingProduct((current) => (current?.id === productId ? { ...current, images: previous } : current));
+            setImageOrderNotice('');
+            setError(caught instanceof Error ? `Image order not saved: ${caught.message}` : 'Image order not saved.');
+        } finally {
+            setBusyItem(null);
         }
     };
 
@@ -1240,15 +2046,32 @@ const CatalogueAdmin = () => {
 
             setBulkImportProgress({
                 fileName: file.name,
+                phase: 'loading',
+                detail: 'Loading every product to match slugs and SKUs…',
+                completedProducts: 0,
+                totalProducts: groups.size,
+            });
+            // The list shows one page, so read the whole catalogue now to match rows against it.
+            let existingProducts: Product[];
+            try {
+                existingProducts = await api.adminAllProducts();
+            } catch (caught) {
+                const message = caught instanceof Error ? caught.message : 'Request failed.';
+                setError(`Import stopped before any changes: the current catalogue could not be loaded. ${message}`);
+                return;
+            }
+            setBulkImportProgress((current) => current ? {
+                ...current,
                 phase: missingCategoryNames.length ? 'categories' : 'products',
                 detail: missingCategoryNames.length
                     ? `Preparing ${missingCategoryNames.length} new categor${missingCategoryNames.length === 1 ? 'y' : 'ies'}…`
                     : 'Preparing the first product…',
-                completedProducts: 0,
-                totalProducts: groups.size,
-            });
+            } : current);
 
-            const productBySlug = new Map(products.map((product) => [product.slug, product]));
+            const productBySlug = new Map(existingProducts.map((product) => [product.slug, product]));
+            const productBySku = new Map(existingProducts.flatMap((product) => product.variants.map((variant) => [variant.sku.toUpperCase(), product] as const)));
+            // Existing product id → the file's name for it, so two groups cannot update one product.
+            const claimedProducts = new Map<string, string>();
             const importErrors: string[] = [];
             let categoriesCreated = 0;
             let productsCreated = 0;
@@ -1299,27 +2122,46 @@ const CatalogueAdmin = () => {
                     completeProductProgress();
                     continue;
                 }
+                // Match the file's slug first (exports carry it, so renamed products still match),
+                // then any existing SKU in the group, then a slug made from the product name.
+                const existingProduct =
+                    (base.explicit_slug ? productBySlug.get(slug) : undefined)
+                    ?? productRows.map((row) => productBySku.get(row.sku.toUpperCase())).find((match) => match !== undefined)
+                    ?? productBySlug.get(slugify(base.product_name));
+                if (existingProduct) {
+                    const claimedBy = claimedProducts.get(existingProduct.id);
+                    if (claimedBy !== undefined) {
+                        importErrors.push(`Product “${base.product_name}” (row ${base.sourceRow}) matches the same existing product as “${claimedBy}”. Give all of its rows the same product_slug.`);
+                        completeProductProgress();
+                        continue;
+                    }
+                    claimedProducts.set(existingProduct.id, base.product_name);
+                }
+                const targetStatus = base.status.toUpperCase();
+                // A new product is only published once its options are in place.
+                const publishAfterOptions = !existingProduct && targetStatus === 'PUBLISHED';
+                const errorsBeforeProduct = importErrors.length;
                 let savedProduct: Product;
                 try {
                     const productInput = {
                         categoryId: category.id,
                         name: base.product_name,
-                        slug,
+                        // Updating keeps the existing slug so storefront URLs do not change.
+                        slug: existingProduct?.slug ?? slug,
                         shortDescription: productSummary(base.description),
                         description: base.description,
                         material: base.material,
-                        status: base.status.toUpperCase(),
+                        status: publishAfterOptions ? 'DRAFT' : targetStatus,
                     };
-                    const existingProduct = productBySlug.get(slug);
                     if (existingProduct) {
                         savedProduct = await api.updateProduct(existingProduct.id, productInput);
                         undoActions.push(() => api.updateProduct(existingProduct.id, {
                             categoryId: existingProduct.categoryId,
                             name: existingProduct.name,
                             slug: existingProduct.slug,
-                            shortDescription: existingProduct.shortDescription,
-                            description: existingProduct.description,
-                            material: existingProduct.material,
+                            shortDescription: existingProduct.shortDescription ?? null,
+                            description: existingProduct.description ?? null,
+                            material: existingProduct.material ?? null,
                             status: existingProduct.status,
                         }));
                         productsUpdated += 1;
@@ -1328,18 +2170,28 @@ const CatalogueAdmin = () => {
                         undoActions.push(() => api.deleteProduct(savedProduct.id));
                         productsCreated += 1;
                     }
-                    productBySlug.set(slug, savedProduct);
+                    productBySlug.set(savedProduct.slug, savedProduct);
                 } catch (caught) {
                     const message = caught instanceof Error ? caught.message : 'Product save failed.';
-                    importErrors.push(`Product “${slug}”: ${message}`);
+                    importErrors.push(`Product “${base.product_name}”: ${message}`);
                     completeProductProgress();
                     continue;
                 }
 
                 const existingVariants = new Map(
-                    (products.find((product) => product.slug === slug)?.variants || []).map((variant) => [variant.sku, variant]),
+                    (existingProduct?.variants || []).map((variant) => [variant.sku.toUpperCase(), variant]),
                 );
                 const importedImagesByLink = new Map<string, { imageId: string; variantIds: Set<string>; shared: boolean }>();
+                // Imports a Drive link once per product. An image the product already had from that
+                // Drive file is reused, and rollback restores its links rather than deleting it.
+                const importLinkedImage = async (driveUrl: string, variantIds: string[], altText: string, sortOrder: number) => {
+                    const { image, previousVariantIds } = await importDriveImage(savedProduct.id, driveUrl, { variantIds, altText, sortOrder });
+                    const linkedIds = productImageVariantIds(image);
+                    importedImagesByLink.set(driveUrl, { imageId: image.id, variantIds: new Set(linkedIds), shared: linkedIds.length === 0 });
+                    undoActions.push(previousVariantIds
+                        ? () => api.updateProductImage(savedProduct.id, image.id, { variantIds: previousVariantIds })
+                        : () => api.deleteProductImage(savedProduct.id, image.id));
+                };
                 for (const row of productRows) {
                     setBulkImportProgress((current) => current ? {
                         ...current,
@@ -1356,22 +2208,32 @@ const CatalogueAdmin = () => {
                                 ? importRupeesToPaise(row.compare_at_price_rupees)!
                                 : null,
                             attributes: existingVariant?.attributes || {},
-                            ...(row.color ? { color: row.color } : {}),
-                            ...(row.color_hex ? { colorHex: row.color_hex.toUpperCase() } : {}),
+                            // A blank colour clears it, like a blank size or pack quantity.
+                            color: row.color || null,
+                            ...(row.color && row.color_hex ? { colorHex: row.color_hex.toUpperCase() } : {}),
                             size: row.size || null,
                             packQuantity: row.pack_quantity ? Number(row.pack_quantity) : null,
-                            isActive: row.is_active ? importBoolean(row.is_active)! : true,
+                            // A blank is_active keeps an existing option's availability.
+                            isActive: row.is_active ? importBoolean(row.is_active)! : (existingVariant?.isActive ?? true),
                         };
                         const savedVariant = existingVariant
                             ? await api.updateVariant(existingVariant.id, variantInput)
                             : await api.createVariant(savedProduct.id, variantInput);
                         if (existingVariant) {
+                            const original = existingVariant.attributes || {};
+                            const originalText = (key: string) => (typeof original[key] === 'string' && original[key] ? original[key] as string : null);
                             undoActions.push(() => api.updateVariant(existingVariant.id, {
                                 sku: existingVariant.sku,
                                 alias: existingVariant.alias || null,
                                 pricePaise: existingVariant.pricePaise,
                                 compareAtPricePaise: existingVariant.compareAtPricePaise ?? null,
-                                attributes: existingVariant.attributes,
+                                attributes: original,
+                                // Attributes are merged on the server, so null removes the keys this
+                                // import added (e.g. a size) that the original option did not have.
+                                color: originalText('color'),
+                                colorHex: originalText('colorHex'),
+                                size: originalText('size'),
+                                packQuantity: typeof original.packQuantity === 'number' ? original.packQuantity : null,
                                 isActive: existingVariant.isActive,
                             }));
                             variantsUpdated += 1;
@@ -1380,7 +2242,8 @@ const CatalogueAdmin = () => {
                             variantsCreated += 1;
                         }
 
-                        for (const [index, driveUrl] of driveLinksFromCsvCell(row.option_google_drive_image_links).entries()) {
+                        const optionLinks = driveLinksFromCsvCell(row.option_google_drive_image_links);
+                        await runLimited(optionLinks.map((driveUrl, index) => async () => {
                             setBulkImportProgress((current) => current ? {
                                 ...current,
                                 detail: `Downloading image ${index + 1} for option ${row.sku}…`,
@@ -1394,27 +2257,17 @@ const CatalogueAdmin = () => {
                                     });
                                 }
                             } else {
-                                const importedImage = await uploadGoogleDriveImage(savedProduct.id, driveUrl, {
-                                    variantIds: [savedVariant.id],
-                                    altText: `${base.product_name} — ${variantOptionLabel(savedVariant)}`,
-                                    sortOrder: index,
-                                });
-                                importedImagesByLink.set(driveUrl, {
-                                    imageId: importedImage.id,
-                                    variantIds: new Set([savedVariant.id]),
-                                    shared: false,
-                                });
-                                undoActions.push(() => api.deleteProductImage(savedProduct.id, importedImage.id));
+                                await importLinkedImage(driveUrl, [savedVariant.id], imageAltText(base.product_name, variantOptionLabel(savedVariant)), index);
                             }
-                        }
+                        }));
                     } catch (caught) {
                         const message = caught instanceof Error ? caught.message : 'Variant save failed.';
                         importErrors.push(`Row ${row.sourceRow} (${row.sku}): ${message}`);
                     }
                 }
 
-                const sharedLinks = new Set(productRows.flatMap((row) => driveLinksFromCsvCell(row.shared_google_drive_image_links)));
-                for (const [index, driveUrl] of [...sharedLinks].entries()) {
+                const sharedLinks = [...new Set(productRows.flatMap((row) => driveLinksFromCsvCell(row.shared_google_drive_image_links)))];
+                await runLimited(sharedLinks.map((driveUrl, index) => async () => {
                     setBulkImportProgress((current) => current ? {
                         ...current,
                         detail: `Downloading shared image ${index + 1} for “${base.product_name}”…`,
@@ -1426,20 +2279,20 @@ const CatalogueAdmin = () => {
                             previousImage.variantIds.clear();
                             await api.updateProductImage(savedProduct.id, previousImage.imageId, { variantIds: [] });
                         } else {
-                            const importedImage = await uploadGoogleDriveImage(savedProduct.id, driveUrl, {
-                                altText: base.product_name,
-                                sortOrder: index,
-                            });
-                            importedImagesByLink.set(driveUrl, {
-                                imageId: importedImage.id,
-                                variantIds: new Set(),
-                                shared: true,
-                            });
-                            undoActions.push(() => api.deleteProductImage(savedProduct.id, importedImage.id));
+                            await importLinkedImage(driveUrl, [], imageAltText(base.product_name), index);
                         }
                     } catch (caught) {
                         const message = caught instanceof Error ? caught.message : 'Shared image import failed.';
-                        importErrors.push(`Product “${slug}” shared image: ${message}`);
+                        importErrors.push(`Product “${base.product_name}” shared image: ${message}`);
+                    }
+                }));
+
+                if (publishAfterOptions && importErrors.length === errorsBeforeProduct) {
+                    try {
+                        await api.updateProduct(savedProduct.id, { status: 'PUBLISHED' });
+                    } catch (caught) {
+                        const message = caught instanceof Error ? caught.message : 'Publishing failed.';
+                        importErrors.push(`Product “${base.product_name}”: ${message}`);
                     }
                 }
                 completeProductProgress();
@@ -1465,7 +2318,7 @@ const CatalogueAdmin = () => {
                     phase: 'refreshing',
                     detail: 'Refreshing the catalogue after rollback…',
                 } : current);
-                await load();
+                await refreshCatalogue();
                 return;
             }
 
@@ -1479,7 +2332,7 @@ const CatalogueAdmin = () => {
                 completedProducts: current.totalProducts,
                 detail: 'Refreshing the catalogue with the imported products…',
             } : current);
-            await load();
+            await refreshCatalogue();
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'Could not read the catalogue CSV.');
         } finally {
@@ -1496,23 +2349,26 @@ const CatalogueAdmin = () => {
         const form = new FormData(event.currentTarget);
         try {
             if (editingCategory) {
-                await api.updateCategory(editingCategory.id, {
+                const category = await api.updateCategory(editingCategory.id, {
                     name: String(form.get('name')),
                     description: String(form.get('description')),
                     isPublished: form.get('isPublished') === 'on',
                 });
+                setCategories((current) => current.map((item) => (item.id === category.id ? category : item)));
+                setProducts((current) => current.map((product) => (product.categoryId === category.id ? { ...product, category } : product)));
                 setSuccessMessage('Category updated.');
             } else {
-                await api.createCategory({
+                const category = await api.createCategory({
                     name: String(form.get('name')),
                     description: String(form.get('description')),
                     isPublished: form.get('isPublished') === 'on',
                 });
+                setCategories((current) => [...current, category].sort((left, right) =>
+                    left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)));
                 setSuccessMessage('New category created.');
             }
             setOpenCategoryModal(false);
             setEditingCategory(null);
-            await load();
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'Category save failed.');
         } finally {
@@ -1520,21 +2376,21 @@ const CatalogueAdmin = () => {
         }
     };
 
-    const filteredProducts = useMemo(() => {
-        return products.filter((p) => {
-            const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.slug.includes(searchQuery.toLowerCase());
-            const matchesCat = !categoryFilter || p.categoryId === categoryFilter;
-            const matchesStatus = !statusFilter || p.status === statusFilter;
-            return matchesSearch && matchesCat && matchesStatus;
-        });
-    }, [products, searchQuery, categoryFilter, statusFilter]);
+    // The export holds every product, so it is read when asked for rather than with the page.
+    const handleExportCatalogue = async () => {
+        setExportingCatalogue(true);
+        setError('');
+        try {
+            downloadCsv('glockery-catalogue-export.csv', catalogueCsvExport(await api.adminAllProducts()));
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Could not export the catalogue.');
+        } finally {
+            setExportingCatalogue(false);
+        }
+    };
 
-    // New filters start from the first page; deletes can shrink the list below the current page.
-    useEffect(() => setProductPage(1), [searchQuery, categoryFilter, statusFilter, productPageSize]);
-    const productPageCount = Math.max(1, Math.ceil(filteredProducts.length / productPageSize));
-    const currentProductPage = Math.min(productPage, productPageCount);
-    const productPageStart = (currentProductPage - 1) * productPageSize;
-    const pagedProducts = filteredProducts.slice(productPageStart, productPageStart + productPageSize);
+    const productPageCount = Math.max(1, Math.ceil(productTotal / productPageSize));
+    const productPageStart = (productPage - 1) * productPageSize;
 
     return (
         <AdminShell
@@ -1549,18 +2405,25 @@ const CatalogueAdmin = () => {
                         <IconDownload size={15} /> Import Template
                     </button>
                     <button
-                        onClick={() => downloadCsv('glockery-catalogue-export.csv', catalogueCsvExport(products))}
-                        disabled={!products.length}
+                        onClick={() => void handleExportCatalogue()}
+                        disabled={exportingCatalogue}
+                        aria-busy={exportingCatalogue}
                         className="flex h-11 items-center gap-2 border border-gold-500/30 bg-carbon px-3 text-xs font-bold uppercase tracking-wider text-cream hover:border-gold-400 disabled:opacity-40"
                     >
-                        <IconDownload size={15} /> Export Catalogue
+                        <IconDownload size={15} /> {exportingCatalogue ? 'Exporting…' : 'Export Catalogue'}
                     </button>
-                    <label className="flex h-11 cursor-pointer items-center gap-2 border border-gold-500/30 bg-carbon px-3 text-xs font-bold uppercase tracking-wider text-cream hover:border-gold-400">
+                    <label
+                        className={`flex h-11 items-center gap-2 border border-gold-500/30 bg-carbon px-3 text-xs font-bold uppercase tracking-wider text-cream ${
+                            bulkImporting || !catalogueLoaded ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:border-gold-400'
+                        }`}
+                        title={catalogueLoaded ? undefined : 'Available once the categories have loaded'}
+                    >
                         <IconPlus size={15} /> {bulkImporting ? 'Importing…' : 'Import File'}
+                        {/* Import matches category names against the loaded categories, so it waits for them. */}
                         <input
                             type="file"
                             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            disabled={bulkImporting}
+                            disabled={bulkImporting || !catalogueLoaded}
                             className="sr-only"
                             onChange={(event) => {
                                 const file = event.target.files?.[0];
@@ -1616,7 +2479,7 @@ const CatalogueAdmin = () => {
                         activeTab === 'products' ? 'border-b-2 border-gold-400 text-gold-300' : 'text-cream/50 hover:text-cream'
                     }`}
                 >
-                    Products ({products.length})
+                    Products{productsLoaded ? ` (${productTotal})` : ''}
                 </button>
                 <button
                     onClick={() => setActiveTab('categories')}
@@ -1635,15 +2498,21 @@ const CatalogueAdmin = () => {
                         <div className="flex min-w-0 flex-1 rounded-sm border border-gold-500/25 bg-carbon sm:col-span-2 lg:min-w-[240px]">
                             <IconSearch className="m-3 text-gold-400" />
                             <input
+                                type="search"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search products by name or slug…"
+                                aria-label="Search products"
+                                placeholder="Search by name, slug, SKU or alias…"
                                 className="min-w-0 flex-1 bg-transparent text-sm text-cream outline-none"
                             />
                         </div>
                         <select
                             value={categoryFilter}
-                            onChange={(e) => setCategoryFilter(e.target.value)}
+                            onChange={(e) => {
+                                setCategoryFilter(e.target.value);
+                                setProductPage(1);
+                            }}
+                            aria-label="Filter by category"
                             className="h-11 w-full rounded-sm border border-gold-500/25 bg-obsidian px-4 text-xs text-cream outline-none lg:w-auto"
                         >
                             <option value="">All Categories</option>
@@ -1655,7 +2524,11 @@ const CatalogueAdmin = () => {
                         </select>
                         <select
                             value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
+                            onChange={(e) => {
+                                setStatusFilter(e.target.value as Product['status'] | '');
+                                setProductPage(1);
+                            }}
+                            aria-label="Filter by status"
                             className="h-11 w-full rounded-sm border border-gold-500/25 bg-obsidian px-4 text-xs text-cream outline-none lg:w-auto"
                         >
                             <option value="">All Statuses</option>
@@ -1666,8 +2539,8 @@ const CatalogueAdmin = () => {
                     </div>
 
                     {/* Products Table */}
-                    <div className={`${box} overflow-x-auto`}>
-                        <table className="admin-responsive-table w-full min-w-[850px] text-left text-sm">
+                    <div className={`${box} overflow-x-auto`} aria-busy={productsLoading}>
+                        <table className={`admin-responsive-table w-full min-w-[850px] text-left text-sm transition-opacity ${productsLoading && productsLoaded ? 'opacity-60' : ''}`}>
                             <thead className="border-b border-gold-500/20 text-[9px] uppercase tracking-[0.2em] text-gold-400 bg-obsidian/60">
                                 <tr>
                                     <th className="p-4">Product</th>
@@ -1679,7 +2552,7 @@ const CatalogueAdmin = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gold-500/10">
-                                {pagedProducts.map((product) => (
+                                {products.map((product) => (
                                     <tr key={product.id} className="transition-colors hover:bg-gold-400/[.03]">
                                         <td data-label="Product" className="p-4">
                                             <div className="flex items-center gap-3">
@@ -1703,14 +2576,19 @@ const CatalogueAdmin = () => {
                                                 className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
                                                     product.status === 'PUBLISHED'
                                                         ? 'border-emerald-500/30 bg-emerald-950/30 text-emerald-300'
-                                                        : 'border-gold-500/30 bg-gold-950/30 text-gold-300'
+                                                        : product.status === 'ARCHIVED'
+                                                            ? 'border-cream/20 bg-obsidian text-cream/45'
+                                                            : 'border-gold-500/30 bg-gold-950/30 text-gold-300'
                                                 }`}
                                             >
                                                 {titleCase(product.status)}
                                             </span>
                                         </td>
                                         <td data-label="Price" className="p-4 text-right font-medium text-gold-300">
-                                            {product.variants[0] ? rupees(product.variants[0].pricePaise) : '—'}
+                                            {(() => {
+                                                const lowest = lowestPricedVariant(product);
+                                                return lowest ? `${variantPricesDiffer(product) ? 'From ' : ''}${rupees(lowest.pricePaise)}` : '—';
+                                            })()}
                                         </td>
                                         <td data-label="Actions" className="p-4 text-center">
                                             <div className="flex items-center justify-center gap-2">
@@ -1735,20 +2613,24 @@ const CatalogueAdmin = () => {
                                 ))}
                             </tbody>
                         </table>
-                        {!filteredProducts.length && <p className="p-10 text-center text-sm text-cream/40">No matching products found in catalogue.</p>}
+                        {!productsLoaded && productsLoading && <p className="p-10 text-center text-sm text-cream/40" role="status">Loading products…</p>}
+                        {productsLoaded && !productsLoading && !products.length && <p className="p-10 text-center text-sm text-cream/40">No matching products found in catalogue.</p>}
                     </div>
 
-                    {filteredProducts.length > 0 && (
+                    {productTotal > 0 && products.length > 0 && (
                         <div className="mt-4 flex flex-col gap-3 text-xs text-cream/60 sm:flex-row sm:items-center sm:justify-between">
                             <div className="flex items-center gap-3">
                                 <span>
-                                    Showing {productPageStart + 1}–{productPageStart + pagedProducts.length} of {filteredProducts.length}
+                                    Showing {productPageStart + 1}–{productPageStart + products.length} of {productTotal}
                                 </span>
                                 <label className="flex items-center gap-2">
                                     <span className="sr-only sm:not-sr-only">Per page</span>
                                     <select
                                         value={productPageSize}
-                                        onChange={(e) => setProductPageSize(Number(e.target.value) as ProductPageSize)}
+                                        onChange={(e) => {
+                                            setProductPageSize(Number(e.target.value) as ProductPageSize);
+                                            setProductPage(1);
+                                        }}
                                         className="h-9 rounded-sm border border-gold-500/25 bg-obsidian px-3 text-xs text-cream outline-none"
                                         aria-label="Products per page"
                                     >
@@ -1763,19 +2645,19 @@ const CatalogueAdmin = () => {
                             {productPageCount > 1 && (
                                 <div className="flex items-center gap-2">
                                     <button
-                                        onClick={() => setProductPage(currentProductPage - 1)}
-                                        disabled={currentProductPage <= 1}
+                                        onClick={() => setProductPage(productPage - 1)}
+                                        disabled={productPage <= 1}
                                         className="flex size-9 items-center justify-center rounded-sm border border-gold-500/25 bg-carbon text-cream hover:border-gold-400 disabled:pointer-events-none disabled:opacity-30"
                                         aria-label="Previous page"
                                     >
                                         <IconChevronLeft size={16} />
                                     </button>
                                     <span className="px-2">
-                                        Page <strong className="text-gold-300">{currentProductPage}</strong> of {productPageCount}
+                                        Page <strong className="text-gold-300">{productPage}</strong> of {productPageCount}
                                     </span>
                                     <button
-                                        onClick={() => setProductPage(currentProductPage + 1)}
-                                        disabled={currentProductPage >= productPageCount}
+                                        onClick={() => setProductPage(productPage + 1)}
+                                        disabled={productPage >= productPageCount}
                                         className="flex size-9 items-center justify-center rounded-sm border border-gold-500/25 bg-carbon text-cream hover:border-gold-400 disabled:pointer-events-none disabled:opacity-30"
                                         aria-label="Next page"
                                     >
@@ -1850,11 +2732,9 @@ const CatalogueAdmin = () => {
                             <button
                                 type="button"
                                 aria-label="Close product dialog"
-                                onClick={() => {
-                                    setOpenProductModal(false);
-                                    setEditingProduct(null);
-                                }}
-                                className="flex min-h-11 shrink-0 items-center gap-2 rounded-sm px-3 text-xs font-semibold text-cream/60 hover:bg-obsidian hover:text-cream"
+                                onClick={closeProductModal}
+                                disabled={saving}
+                                className="flex min-h-11 shrink-0 items-center gap-2 rounded-sm px-3 text-xs font-semibold text-cream/60 hover:bg-obsidian hover:text-cream disabled:opacity-40"
                             >
                                 <IconClose size={17} aria-hidden="true" /> Close
                             </button>
@@ -1935,18 +2815,11 @@ const CatalogueAdmin = () => {
                                                 {variantDrafts.length > 1 && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => void (async () => {
-                                                            if (draft.id && !window.confirm(`Delete option “${draft.color || draft.sku}”?`)) return;
-                                                            try {
-                                                                if (draft.id) await api.deleteVariant(draft.id);
-                                                                setVariantDrafts((current) => current.filter((item) => item.key !== draft.key));
-                                                            } catch (caught) {
-                                                                setError(caught instanceof Error ? caught.message : 'Variant deletion failed.');
-                                                            }
-                                                        })()}
-                                                        className="min-h-11 px-2 text-xs text-red-200 hover:text-red-100"
+                                                        onClick={() => void handleRemoveVariant(draft)}
+                                                        disabled={saving || busyItem !== null}
+                                                        className="min-h-11 px-2 text-xs text-red-200 hover:text-red-100 disabled:opacity-40"
                                                     >
-                                                        Remove
+                                                        {busyItem === `variant:${draft.key}` ? 'Removing…' : 'Remove'}
                                                     </button>
                                                 )}
                                             </div>
@@ -2133,18 +3006,50 @@ const CatalogueAdmin = () => {
                             {editingProduct && editingProduct.images.length > 0 && (
                                 <section className="sm:col-span-2" aria-labelledby="existing-images-heading">
                                     <h3 id="existing-images-heading" className="text-sm font-semibold text-cream">
-                                        Assign existing images
+                                        Order and assign existing images
                                     </h3>
                                     <p className="mt-1 text-xs text-cream/55">
-                                        Keep an image product-wide, reuse it for every combination of one colour, or choose exact combinations.
+                                        The storefront shows images in this order, each option&rsquo;s own images before shared ones. A product card uses the first image of its lowest-priced option, or the first shared image when that option has none. Moving an image saves at once. Keep an image product-wide, reuse it for every combination of one colour, or choose exact combinations.
                                     </p>
-                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                        {editingProduct.images.map((image) => {
+                                    <p role="status" aria-live="polite" className="mt-1 min-h-4 text-[11px] text-gold-300">
+                                        {imageOrderNotice}
+                                    </p>
+                                    <ol className="mt-2 grid gap-3 sm:grid-cols-2" aria-label="Product images in storefront order">
+                                        {editingProduct.images.map((image, imageIndex) => {
                                             const assignedIds = imageAssignments[image.id] ?? [];
                                             const mode = assignmentMode(assignedIds, variantDrafts);
+                                            const imageCount = editingProduct.images.length;
+                                            const reorderBlocked = saving || busyItem !== null;
+                                            const moveButtonClass = 'flex size-11 items-center justify-center rounded-sm border border-gold-500/25 bg-carbon text-cream hover:border-gold-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-30';
                                             return (
-                                            <div key={image.id} className="flex items-start gap-3 bg-obsidian/55 p-2">
-                                                <img loading="lazy" decoding="async" src={image.thumbnailUrl} alt={image.altText} className="size-16 shrink-0 bg-obsidian object-contain" />
+                                            <li key={image.id} className="flex items-start gap-3 bg-obsidian/55 p-2" aria-busy={busyItem === `image-order:${image.id}`}>
+                                                <span className="flex shrink-0 flex-col items-center gap-1.5">
+                                                    <img loading="lazy" decoding="async" src={image.thumbnailUrl} alt={image.altText} className="size-16 bg-obsidian object-contain" />
+                                                    <span className="text-[10px] tabular-nums text-cream/55">{imageIndex + 1} of {imageCount}</span>
+                                                    {imageCount > 1 && (
+                                                        <span className="flex gap-1">
+                                                            {/* aria-disabled rather than disabled keeps keyboard focus on the button while it moves. */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void handleMoveImage(editingProduct.id, image.id, -1)}
+                                                                aria-disabled={reorderBlocked || imageIndex === 0}
+                                                                aria-label={`Move image ${imageIndex + 1} of ${imageCount} earlier`}
+                                                                className={moveButtonClass}
+                                                            >
+                                                                <IconChevronLeft size={16} aria-hidden="true" />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void handleMoveImage(editingProduct.id, image.id, 1)}
+                                                                aria-disabled={reorderBlocked || imageIndex === imageCount - 1}
+                                                                aria-label={`Move image ${imageIndex + 1} of ${imageCount} later`}
+                                                                className={moveButtonClass}
+                                                            >
+                                                                <IconChevronRight size={16} aria-hidden="true" />
+                                                            </button>
+                                                        </span>
+                                                    )}
+                                                </span>
                                                 <label className="min-w-0 flex-1">
                                                     <span className="mb-1 block text-[11px] text-cream/55">Gallery assignment</span>
                                                     <select
@@ -2190,24 +3095,18 @@ const CatalogueAdmin = () => {
                                                 </label>
                                                 <button
                                                     type="button"
-                                                    onClick={() => void (async () => {
-                                                        if (!window.confirm('Delete this product image?')) return;
-                                                        try {
-                                                            await api.deleteProductImage(editingProduct.id, image.id);
-                                                            setEditingProduct({ ...editingProduct, images: editingProduct.images.filter((item) => item.id !== image.id) });
-                                                        } catch (caught) {
-                                                            setError(caught instanceof Error ? caught.message : 'Image deletion failed.');
-                                                        }
-                                                    })()}
-                                                    className="p-2 text-red-300"
+                                                    onClick={() => void handleDeleteExistingImage(editingProduct.id, image.id)}
+                                                    disabled={saving || busyItem !== null}
+                                                    aria-busy={busyItem === `image:${image.id}`}
+                                                    className="p-2 text-red-300 disabled:opacity-40"
                                                     aria-label="Delete image"
                                                 >
                                                     <IconTrash size={15} />
                                                 </button>
-                                            </div>
+                                            </li>
                                             );
                                         })}
-                                    </div>
+                                    </ol>
                                 </section>
                             )}
 
@@ -2268,7 +3167,7 @@ const CatalogueAdmin = () => {
                         </div>
                         <div data-dialog-actions="product" className="shrink-0 border-t border-gold-500/20 bg-carbon px-4 py-3 sm:px-7 sm:py-4">
                             <button
-                                disabled={saving}
+                                disabled={saving || busyItem !== null}
                                 className="h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-[0.2em] text-obsidian disabled:opacity-50 hover:bg-gold-300 rounded-sm shadow-md"
                             >
                                 {saving ? 'Saving product and options…' : editingProduct ? 'Save product and options' : 'Create product and options'}
@@ -2303,7 +3202,8 @@ const CatalogueAdmin = () => {
                                     setOpenCategoryModal(false);
                                     setEditingCategory(null);
                                 }}
-                                className="flex min-h-11 shrink-0 items-center gap-2 rounded-sm px-3 text-xs font-semibold text-cream/60 hover:bg-obsidian hover:text-cream"
+                                disabled={saving}
+                                className="flex min-h-11 shrink-0 items-center gap-2 rounded-sm px-3 text-xs font-semibold text-cream/60 hover:bg-obsidian hover:text-cream disabled:opacity-40"
                             >
                                 <IconClose size={17} aria-hidden="true" /> Close
                             </button>
@@ -2349,187 +3249,266 @@ const CatalogueAdmin = () => {
 // ----------------------------------------------------
 // 4. SMART INVENTORY & STOCK EDITOR
 // ----------------------------------------------------
-const InventoryAdmin = () => {
-    const [levels, setLevels] = useState<InventoryLevel[]>([]);
-    const [products, setProducts] = useState<Product[]>([]);
-    const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [lowStockOnly, setLowStockOnly] = useState(false);
+const INVENTORY_PAGE_SIZE = 50;
 
-    const [editingLevel, setEditingLevel] = useState<InventoryLevel | null>(null);
+type InventoryHealth = 'inactive' | 'low' | 'ok';
+
+/** Inactive variants and warehouses are not sold, so they never count as low stock. */
+const inventoryHealth = (level: InventoryLevelView): InventoryHealth => {
+    if (!level.variantIsActive || !level.warehouseIsActive) return 'inactive';
+    return level.onHand - level.reserved <= level.lowStockThreshold ? 'low' : 'ok';
+};
+
+const inventoryLabel = (level: InventoryLevelView): string =>
+    [level.productName, level.color, level.sku].filter(Boolean).join(' · ');
+
+/** Row-level errors attached to a 409 from the bulk inventory endpoint. */
+const apiRowErrors = (caught: unknown): { index: number; message: string }[] => {
+    const details = caught && typeof caught === 'object' && 'details' in caught ? (caught as { details?: unknown }).details : undefined;
+    const errors = details && typeof details === 'object' && 'errors' in details ? (details as { errors?: unknown }).errors : undefined;
+    if (!Array.isArray(errors)) return [];
+    return errors.filter(
+        (item): item is { index: number; message: string } =>
+            Boolean(item) && typeof item === 'object' && typeof item.index === 'number' && typeof item.message === 'string',
+    );
+};
+
+const errorMessage = (caught: unknown, fallback: string): string => (caught instanceof Error ? caught.message : fallback);
+
+const importPhaseLabel: Record<'reading' | 'checking' | 'saving', string> = {
+    reading: 'Reading file…',
+    checking: 'Checking rows…',
+    saving: 'Saving stock…',
+};
+
+const InventoryAdmin = () => {
+    const [levels, setLevels] = useState<InventoryLevelView[]>([]);
+    const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+    const [loaded, setLoaded] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const deferredSearch = useDeferredValue(searchQuery);
+    const [lowStockOnly, setLowStockOnly] = useState(false);
+    const [page, setPage] = useState(1);
+
+    const [editingLevel, setEditingLevel] = useState<InventoryLevelView | null>(null);
     const [openWarehouseModal, setOpenWarehouseModal] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [bulkImporting, setBulkImporting] = useState(false);
+    const [warehouseBusyId, setWarehouseBusyId] = useState<string | null>(null);
+    const [importPhase, setImportPhase] = useState<'idle' | 'reading' | 'checking' | 'saving'>('idle');
     const [bulkImportErrors, setBulkImportErrors] = useState<string[]>([]);
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
-    const warehouseDialogRef = useDialog<HTMLFormElement>(openWarehouseModal, () => setOpenWarehouseModal(false));
+    const warehouseDialogRef = useDialog<HTMLDivElement>(openWarehouseModal, () => setOpenWarehouseModal(false));
     const stockDialogRef = useDialog<HTMLFormElement>(Boolean(editingLevel), () => setEditingLevel(null));
+    const importing = importPhase !== 'idle';
 
-    // Products only add names and thumbnails, so stock levels render without them.
+    // Levels carry their own SKU, product, colour and thumbnail, so warehouse managers
+    // never need catalogue-manager access to use this page.
     const load = () =>
-        Promise.all([
-            Promise.all([api.inventory(), api.warehouses()]).then(([rows, warehouseRows]) => {
+        Promise.all([api.inventory(), api.warehouses()])
+            .then(([rows, warehouseRows]) => {
                 setLevels(rows);
                 setWarehouses(warehouseRows);
-            }),
-            api.adminProducts().then(setProducts),
-        ]).catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load inventory.'));
+            })
+            .catch((caught) => setError(errorMessage(caught, 'Unable to load inventory.')))
+            .finally(() => setLoaded(true));
 
     useEffect(() => {
         void load();
     }, []);
 
-    const variantsMap = useMemo(() => {
-        const map = new Map<
-            string,
-            {
-                label: string;
-                sku: string;
-                alias: string;
-                name: string;
-                color?: string;
-                colorHex?: string;
-                imageUrl: string;
-            }
-        >();
-        for (const p of products) {
-            for (const v of p.variants) {
-                const image = p.images.find((item) => productImageVariantIds(item).includes(v.id))
-                    || p.images.find((item) => productImageVariantIds(item).length === 0)
-                    || p.images[0];
-                const color = variantAttribute(v, 'color');
-                const colorHex = variantAttribute(v, 'colorHex');
-                map.set(v.id, {
-                    label: `${p.name} · ${variantOptionLabel(v)} · ${v.sku}`,
-                    sku: v.sku,
-                    alias: v.alias || '',
-                    name: p.name,
-                    color: color || undefined,
-                    colorHex: /^#[0-9A-F]{6}$/i.test(colorHex) ? colorHex.toUpperCase() : undefined,
-                    imageUrl: image?.thumbnailUrl || fallbackImage,
-                });
-            }
-        }
-        return map;
-    }, [products]);
-
-    const warehousesMap = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+    const mergeLevel = (saved: InventoryLevel) =>
+        setLevels((current) =>
+            current.map((level) =>
+                level.warehouseId === saved.warehouseId && level.variantId === saved.variantId
+                    ? { ...level, onHand: saved.onHand, reserved: saved.reserved, lowStockThreshold: saved.lowStockThreshold }
+                    : level,
+            ),
+        );
 
     const handleCreateWarehouse = async (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         setSaving(true);
         setError('');
-        const form = new FormData(event.currentTarget);
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
         try {
             const warehouse = await api.createWarehouse({
                 code: String(form.get('code')).trim().toUpperCase(),
                 name: String(form.get('name')).trim(),
             });
-            setOpenWarehouseModal(false);
+            formElement.reset();
             setSuccessMsg(`${warehouse.name} created. Every catalogue variant is ready to stock.`);
             await load();
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Failed to create warehouse.');
+            setError(errorMessage(caught, 'Failed to create warehouse.'));
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleUpdateWarehouse = async (warehouse: Warehouse, event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const name = String(form.get('name') || '').trim();
+        const isActive = form.get('isActive') === 'on';
+        const input: { name?: string; isActive?: boolean } = {};
+        if (name && name !== warehouse.name) input.name = name;
+        if (isActive !== warehouse.isActive) input.isActive = isActive;
+        if (!Object.keys(input).length) return;
+        if (
+            input.isActive === false &&
+            !window.confirm(`Deactivate ${warehouse.name}? Its stock will no longer be offered to customers.`)
+        ) {
+            return;
+        }
+        setWarehouseBusyId(warehouse.id);
+        setError('');
+        try {
+            const saved = await api.updateWarehouse(warehouse.id, input);
+            setWarehouses((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+            setLevels((current) =>
+                current.map((level) =>
+                    level.warehouseId === saved.id ? { ...level, warehouseName: saved.name, warehouseIsActive: saved.isActive } : level,
+                ),
+            );
+            setSuccessMsg(`${saved.name} updated.`);
+        } catch (caught) {
+            setError(errorMessage(caught, 'Failed to update warehouse.'));
+        } finally {
+            setWarehouseBusyId(null);
         }
     };
 
     const handleSaveStock = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (!editingLevel) return;
-        setSaving(true);
-        setError('');
         const form = new FormData(e.currentTarget);
         const onHand = Number(form.get('onHand'));
         const lowStockThreshold = Number(form.get('lowStockThreshold'));
-
-        try {
-            await api.setInventory(editingLevel.warehouseId, {
-                variantId: editingLevel.variantId,
-                onHand,
-                lowStockThreshold,
-            });
-            setSuccessMsg('Inventory level updated successfully.');
+        const onHandChanged = onHand !== editingLevel.onHand;
+        if (!onHandChanged && lowStockThreshold === editingLevel.lowStockThreshold) {
             setEditingLevel(null);
-            await load();
+            return;
+        }
+        setSaving(true);
+        setError('');
+        try {
+            // Only send on-hand when it was edited, guarded by the value this editor loaded, so a
+            // threshold change or a stale page can never overwrite stock checkout just moved.
+            const saved = await api.setInventory(editingLevel.warehouseId, {
+                variantId: editingLevel.variantId,
+                lowStockThreshold,
+                ...(onHandChanged ? { onHand, expectedOnHand: editingLevel.onHand } : {}),
+            });
+            mergeLevel(saved);
+            setSuccessMsg(`${editingLevel.sku} · ${editingLevel.warehouseCode} updated.`);
+            setEditingLevel(null);
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Failed to update stock.');
+            const status = caught && typeof caught === 'object' && 'status' in caught ? (caught as { status?: number }).status : undefined;
+            if (status === 409) {
+                setEditingLevel(null);
+                setError(`${errorMessage(caught, 'Stock changed.')} The list has been refreshed.`);
+                await load();
+            } else {
+                setError(errorMessage(caught, 'Failed to update stock.'));
+            }
         } finally {
             setSaving(false);
         }
     };
 
     const handleInventoryImport = async (file: File) => {
-        setBulkImporting(true);
+        setImportPhase('reading');
         setBulkImportErrors([]);
         setError('');
         setSuccessMsg('');
         try {
             const rows = parseInventoryCsv(await readSpreadsheetText(file));
-            const errors = validateInventoryCsvRows(rows);
-            const warehouseByCode = new Map(warehouses.map((warehouse) => [warehouse.code.toUpperCase(), warehouse]));
-            const variantBySku = new Map([...variantsMap.entries()].map(([id, variant]) => [variant.sku.toUpperCase(), id]));
-            const levelByWarehouseAndVariant = new Map(levels.map((level) => [`${level.warehouseId}::${level.variantId}`, level]));
-
-            for (const row of rows) {
-                const warehouse = warehouseByCode.get(row.warehouse_code.toUpperCase());
-                const variantId = variantBySku.get(row.sku.toUpperCase());
-                if (!warehouse) errors.push(`Row ${row.sourceRow}: warehouse_code “${row.warehouse_code}” does not exist.`);
-                if (!variantId) errors.push(`Row ${row.sourceRow}: sku “${row.sku}” does not exist.`);
-                if (warehouse && variantId && Number(row.on_hand) < (levelByWarehouseAndVariant.get(`${warehouse.id}::${variantId}`)?.reserved || 0)) {
-                    errors.push(`Row ${row.sourceRow}: on_hand cannot be lower than currently reserved stock.`);
-                }
-            }
-            if (errors.length) {
+            setImportPhase('checking');
+            const formatErrors = validateInventoryCsvRows(rows);
+            const plan = formatErrors.length ? null : planInventoryImport(rows, levels, warehouses);
+            const errors = plan ? plan.errors : formatErrors;
+            if (!plan || errors.length) {
                 setBulkImportErrors(errors);
                 setError(`Import stopped: ${errors.length} validation error(s). No inventory was changed.`);
                 return;
             }
-            if (!window.confirm(`Set stock for ${rows.length} inventory row(s)? This replaces each listed on-hand quantity.`)) return;
-
-            const importErrors: string[] = [];
-            let updated = 0;
-            for (const row of rows) {
-                const warehouse = warehouseByCode.get(row.warehouse_code.toUpperCase())!;
-                const variantId = variantBySku.get(row.sku.toUpperCase())!;
-                try {
-                    await api.setInventory(warehouse.id, {
-                        variantId,
-                        onHand: Number(row.on_hand),
-                        lowStockThreshold: Number(row.low_stock_threshold),
-                    });
-                    updated += 1;
-                } catch (caught) {
-                    importErrors.push(`Row ${row.sourceRow} (${row.warehouse_code} / ${row.sku}): ${caught instanceof Error ? caught.message : 'Stock update failed.'}`);
-                }
+            if (!plan.changes.length) {
+                setSuccessMsg(`Nothing to import: all ${plan.unchanged} row(s) already match current stock.`);
+                return;
             }
-            setBulkImportErrors(importErrors);
-            setSuccessMsg(`Inventory import finished: ${updated} row(s) updated${importErrors.length ? `, ${importErrors.length} failed` : ''}.`);
-            await load();
+            if (
+                !window.confirm(
+                    `Update ${plan.changes.length} inventory row(s)? ${plan.unchanged} unchanged row(s) will be skipped. ` +
+                        'All rows are saved together — if any row fails, nothing changes.',
+                )
+            ) {
+                return;
+            }
+            setImportPhase('saving');
+            const rowBySource = new Map(rows.map((row) => [row.sourceRow, row]));
+            try {
+                const result = await api.bulkSetInventory(
+                    plan.changes.map((change) => ({
+                        warehouseId: change.warehouseId,
+                        variantId: change.variantId,
+                        onHand: change.onHand,
+                        lowStockThreshold: change.lowStockThreshold,
+                        expectedOnHand: change.expectedOnHand,
+                    })),
+                );
+                setSuccessMsg(
+                    `Inventory import applied: ${result.updated} row(s) updated, ${plan.unchanged + result.unchanged} unchanged.`,
+                );
+                await load();
+            } catch (caught) {
+                const rowErrors = apiRowErrors(caught);
+                if (rowErrors.length) {
+                    setBulkImportErrors(
+                        rowErrors.map(({ index, message }) => {
+                            const change = plan.changes[index];
+                            const row = change ? rowBySource.get(change.sourceRow) : undefined;
+                            return row ? `Row ${row.sourceRow} (${row.warehouse_code} / ${row.sku}): ${message}` : message;
+                        }),
+                    );
+                }
+                throw caught;
+            }
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Could not read the inventory CSV.');
+            setError(errorMessage(caught, 'Could not import the inventory CSV.'));
         } finally {
-            setBulkImporting(false);
+            setImportPhase('idle');
         }
     };
 
-    const filteredLevels = useMemo(() => {
-        return levels.filter((level) => {
-            const info = variantsMap.get(level.variantId);
-            const matchesSearch =
-                !searchQuery ||
-                (info &&
-                    (info.sku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        info.alias.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        info.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        info.color?.toLowerCase().includes(searchQuery.toLowerCase())));
-            const available = level.onHand - level.reserved;
-            const matchesLowStock = !lowStockOnly || available <= level.lowStockThreshold;
-            return matchesSearch && matchesLowStock;
-        });
-    }, [levels, variantsMap, searchQuery, lowStockOnly]);
+    const searchIndex = useMemo(
+        () =>
+            new Map(
+                levels.map((level) => [
+                    level.id,
+                    [level.sku, level.alias, level.productName, level.color, level.warehouseCode, level.warehouseName]
+                        .filter(Boolean)
+                        .join('\n')
+                        .toLowerCase(),
+                ]),
+            ),
+        [levels],
+    );
+    const normalizedQuery = deferredSearch.trim().toLowerCase();
+    const filteredLevels = useMemo(
+        () =>
+            levels.filter(
+                (level) =>
+                    (!lowStockOnly || inventoryHealth(level) === 'low') &&
+                    (!normalizedQuery || Boolean(searchIndex.get(level.id)?.includes(normalizedQuery))),
+            ),
+        [levels, searchIndex, normalizedQuery, lowStockOnly],
+    );
+    const lowStockCount = useMemo(() => levels.filter((level) => inventoryHealth(level) === 'low').length, [levels]);
+    const totalPages = Math.max(1, Math.ceil(filteredLevels.length / INVENTORY_PAGE_SIZE));
+    const currentPage = Math.min(page, totalPages);
+    const pageLevels = filteredLevels.slice((currentPage - 1) * INVENTORY_PAGE_SIZE, currentPage * INVENTORY_PAGE_SIZE);
 
     return (
         <AdminShell
@@ -2544,22 +3523,35 @@ const InventoryAdmin = () => {
                         <IconDownload size={15} /> Template
                     </button>
                     <button
-                        onClick={() => downloadCsv('glockery-inventory-export.csv', inventoryCsvExport(levels.flatMap((level) => {
-                            const warehouse = warehousesMap.get(level.warehouseId);
-                            const variant = variantsMap.get(level.variantId);
-                            return warehouse && variant ? [{ warehouseCode: warehouse.code, sku: variant.sku, onHand: level.onHand, lowStockThreshold: level.lowStockThreshold }] : [];
-                        })))}
+                        onClick={() =>
+                            downloadCsv(
+                                'glockery-inventory-export.csv',
+                                inventoryCsvExport(
+                                    levels.map((level) => ({
+                                        warehouseCode: level.warehouseCode,
+                                        sku: level.sku,
+                                        onHand: level.onHand,
+                                        lowStockThreshold: level.lowStockThreshold,
+                                    })),
+                                ),
+                            )
+                        }
                         disabled={!levels.length}
                         className="flex h-11 items-center gap-2 border border-gold-500/30 bg-carbon px-3 text-xs font-bold uppercase tracking-wider text-cream hover:border-gold-400 disabled:opacity-40"
                     >
                         <IconDownload size={15} /> Export
                     </button>
-                    <label className="flex h-11 cursor-pointer items-center gap-2 border border-gold-500/30 bg-carbon px-3 text-xs font-bold uppercase tracking-wider text-cream hover:border-gold-400">
-                        <IconPlus size={15} /> {bulkImporting ? 'Importing…' : 'Import CSV'}
+                    <label
+                        aria-disabled={importing}
+                        className={`flex h-11 items-center gap-2 border border-gold-500/30 bg-carbon px-3 text-xs font-bold uppercase tracking-wider text-cream ${
+                            importing ? 'cursor-wait opacity-50' : 'cursor-pointer hover:border-gold-400'
+                        }`}
+                    >
+                        <IconPlus size={15} /> {importPhase === 'idle' ? 'Import CSV' : importPhaseLabel[importPhase]}
                         <input
                             type="file"
                             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            disabled={bulkImporting}
+                            disabled={importing}
                             className="sr-only"
                             onChange={(event) => {
                                 const file = event.target.files?.[0];
@@ -2572,13 +3564,18 @@ const InventoryAdmin = () => {
                         onClick={() => setOpenWarehouseModal(true)}
                         className="flex h-11 items-center gap-2 bg-gold-400 px-4 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300 rounded-sm"
                     >
-                        <IconPlus size={16} /> Add Warehouse
+                        <IconEdit size={16} /> Warehouses
                     </button>
                 </div>
             }
         >
             <NotificationToast message={error} type="error" onClose={() => setError('')} />
             <NotificationToast message={successMsg} type="success" onClose={() => setSuccessMsg('')} />
+            <p className="mb-4 text-xs leading-relaxed text-cream/55">
+                CSV import: columns <code>warehouse_code, sku, on_hand, low_stock_threshold</code>. The <code>sku</code> column also accepts a
+                variant alias. Start from Export to include <code>exported_on_hand</code>, which rejects rows whose stock changed after you
+                exported. Spreadsheet apps can drop leading zeros from numeric SKUs — format that column as text before saving.
+            </p>
             {bulkImportErrors.length > 0 && (
                 <div className="mb-6 border border-amber-500/35 bg-amber-950/20 p-4 text-xs text-amber-100" role="alert">
                     <div className="flex items-center justify-between gap-4">
@@ -2597,23 +3594,31 @@ const InventoryAdmin = () => {
                     <IconSearch className="m-3 text-gold-400" />
                     <input
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search by SKU, alias or product name…"
+                        onChange={(e) => {
+                            setSearchQuery(e.target.value);
+                            setPage(1);
+                        }}
+                        placeholder="Search by SKU, alias, product, colour or warehouse…"
+                        aria-label="Search inventory"
                         className="min-w-0 flex-1 bg-transparent text-sm text-cream outline-none"
                     />
                 </div>
                 <button
-                    onClick={() => setLowStockOnly(!lowStockOnly)}
+                    onClick={() => {
+                        setLowStockOnly(!lowStockOnly);
+                        setPage(1);
+                    }}
+                    aria-pressed={lowStockOnly}
                     className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-sm border px-4 py-2.5 text-xs font-semibold transition-colors sm:w-auto ${
                         lowStockOnly ? 'border-red-500/40 bg-red-950/40 text-red-200' : 'border-gold-500/25 bg-carbon text-cream/60 hover:border-gold-400'
                     }`}
                 >
                     <IconAlert size={16} />
-                    {lowStockOnly ? 'Showing Low Stock Alerts Only' : 'Filter Low Stock Alert SKUs'}
+                    {lowStockOnly ? `Showing ${lowStockCount} Low Stock Alert(s)` : `Filter Low Stock Alerts (${lowStockCount})`}
                 </button>
             </div>
 
-            {!warehouses.length && (
+            {loaded && !warehouses.length && (
                 <div className="mb-6 border border-amber-500/30 bg-amber-950/20 p-5 rounded-sm">
                     <h2 className="text-sm font-bold text-amber-300">Set up your first warehouse</h2>
                     <p className="mt-1 text-xs text-cream/65">
@@ -2645,78 +3650,76 @@ const InventoryAdmin = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gold-500/10">
-                        {filteredLevels.map((level) => {
+                        {pageLevels.map((level) => {
                             const available = level.onHand - level.reserved;
-                            const isLow = available <= level.lowStockThreshold;
-                            const info = variantsMap.get(level.variantId);
+                            const health = inventoryHealth(level);
 
                             return (
-                                <tr key={level.id} className="transition-colors hover:bg-gold-400/[.03]">
+                                <tr key={level.id} className={`transition-colors hover:bg-gold-400/[.03] ${health === 'inactive' ? 'opacity-60' : ''}`}>
                                     <td data-label="Item" className="p-4 font-medium text-cream">
                                         <div className="flex items-center gap-3">
                                             <img
                                                 loading="lazy"
                                                 decoding="async"
-                                                src={info?.imageUrl || fallbackImage}
+                                                src={level.thumbnailUrl || fallbackImage}
                                                 alt=""
                                                 className="size-12 shrink-0 rounded-sm border border-gold-500/20 bg-obsidian object-contain"
                                                 onError={(event) => { event.currentTarget.src = fallbackImage; }}
                                             />
                                             <div>
-                                                {info ? (
-                                                    <>
-                                                        <span className="block text-cream">{info.name}</span>
-                                                        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                            {info.color && (
-                                                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-cream/75">
-                                                                    {info.colorHex && (
-                                                                        <span
-                                                                            role="img"
-                                                                            aria-label={`${info.color} colour swatch`}
-                                                                            className="size-3.5 shrink-0 rounded-full border border-cream/30 shadow-[0_1px_3px_rgba(0,0,0,0.35)]"
-                                                                            style={{ backgroundColor: info.colorHex }}
-                                                                        />
-                                                                    )}
-                                                                    {info.color}
-                                                                </span>
+                                                <span className="block text-cream">{level.productName}</span>
+                                                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                                    {level.color && (
+                                                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-cream/75">
+                                                            {level.colorHex && (
+                                                                <span
+                                                                    role="img"
+                                                                    aria-label={`${level.color} colour swatch`}
+                                                                    className="size-3.5 shrink-0 rounded-full border border-cream/30 shadow-[0_1px_3px_rgba(0,0,0,0.35)]"
+                                                                    style={{ backgroundColor: level.colorHex }}
+                                                                />
                                                             )}
-                                                            <span className="font-mono text-[10px] font-semibold tracking-wide text-gold-300">
-                                                                {info.sku}
-                                                            </span>
-                                                            {info.alias && (
-                                                                <span className="font-mono text-[10px] text-cream/50">
-                                                                    Alias: {info.alias}
-                                                                </span>
-                                                            )}
+                                                            {level.color}
                                                         </span>
-                                                    </>
-                                                ) : (
-                                                    <span>{level.variantId}</span>
-                                                )}
+                                                    )}
+                                                    <span className="font-mono text-[10px] font-semibold tracking-wide text-gold-300">{level.sku}</span>
+                                                    {level.alias && <span className="font-mono text-[10px] text-cream/50">Alias: {level.alias}</span>}
+                                                    {!level.variantIsActive && (
+                                                        <span className="rounded-full border border-cream/20 px-2 text-[9px] uppercase tracking-wider text-cream/50">
+                                                            Variant inactive
+                                                        </span>
+                                                    )}
+                                                </span>
                                             </div>
                                         </div>
                                     </td>
                                     <td data-label="Warehouse" className="p-4 text-xs text-cream/60">
-                                        {warehousesMap.get(level.warehouseId)?.name || level.warehouseId}
-                                        {warehousesMap.get(level.warehouseId) && (
-                                            <span className="ml-2 text-[10px] text-gold-400">{warehousesMap.get(level.warehouseId)?.code}</span>
-                                        )}
+                                        {level.warehouseName}
+                                        <span className="ml-2 text-[10px] text-gold-400">{level.warehouseCode}</span>
+                                        {!level.warehouseIsActive && <span className="ml-2 text-[10px] uppercase text-cream/40">Inactive</span>}
                                     </td>
                                     <td data-label="On hand" className="p-4 text-center font-display text-base text-cream">{level.onHand}</td>
                                     <td data-label="Reserved" className="p-4 text-center text-cream/50">{level.reserved}</td>
-                                    <td data-label="Available" className={`p-4 text-center font-display text-lg font-bold ${isLow ? 'text-red-400' : 'text-emerald-400'}`}>
+                                    <td
+                                        data-label="Available"
+                                        className={`p-4 text-center font-display text-lg font-bold ${
+                                            health === 'low' ? 'text-red-400' : health === 'ok' ? 'text-emerald-400' : 'text-cream/50'
+                                        }`}
+                                    >
                                         {available}
                                     </td>
                                     <td data-label="Low threshold" className="p-4 text-center text-cream/40">{level.lowStockThreshold}</td>
                                     <td data-label="Health" className="p-4 text-center">
                                         <span
                                             className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
-                                                isLow
-                                                    ? 'border-red-500/30 bg-red-950/30 text-red-300 animate-pulse'
-                                                    : 'border-emerald-500/30 bg-emerald-950/30 text-emerald-300'
+                                                health === 'low'
+                                                    ? 'border-red-500/30 bg-red-950/30 text-red-300'
+                                                    : health === 'ok'
+                                                      ? 'border-emerald-500/30 bg-emerald-950/30 text-emerald-300'
+                                                      : 'border-cream/20 text-cream/50'
                                             }`}
                                         >
-                                            {isLow ? 'Low Stock Warning' : 'Stocked'}
+                                            {health === 'low' ? 'Low Stock Warning' : health === 'ok' ? 'Stocked' : 'Not on sale'}
                                         </span>
                                     </td>
                                     <td data-label="Actions" className="p-4 text-center">
@@ -2732,17 +3735,25 @@ const InventoryAdmin = () => {
                         })}
                     </tbody>
                 </table>
-                {!filteredLevels.length && <p className="p-10 text-center text-sm text-cream/40">No inventory level records found.</p>}
+                {!filteredLevels.length && (
+                    <p className="p-10 text-center text-sm text-cream/40">{loaded ? 'No inventory level records found.' : 'Loading inventory…'}</p>
+                )}
             </div>
+            {filteredLevels.length > 0 && (
+                <p className="mt-3 text-center text-[11px] text-cream/45">
+                    Showing {(currentPage - 1) * INVENTORY_PAGE_SIZE + 1}–{Math.min(currentPage * INVENTORY_PAGE_SIZE, filteredLevels.length)} of{' '}
+                    {filteredLevels.length} level(s)
+                </p>
+            )}
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setPage} />
 
             {openWarehouseModal && (
                 <AdminModalLayer>
                 <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/85 p-5 backdrop-blur-sm">
-                    <form
+                    <div
                         ref={warehouseDialogRef}
                         tabIndex={-1}
-                        onSubmit={handleCreateWarehouse}
-                        className="max-h-[calc(100svh-2rem)] w-full max-w-md overflow-y-auto border border-gold-500/30 bg-carbon p-6 rounded-sm shadow-2xl outline-none"
+                        className="max-h-[calc(100svh-2rem)] w-full max-w-lg overflow-y-auto border border-gold-500/30 bg-carbon p-6 rounded-sm shadow-2xl outline-none"
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="warehouse-dialog-title"
@@ -2751,37 +3762,83 @@ const InventoryAdmin = () => {
                             <div>
                                 <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-gold-400">Inventory Setup</span>
                                 <h3 id="warehouse-dialog-title" className="font-display text-2xl text-cream">
-                                    Add Warehouse
+                                    Warehouses
                                 </h3>
                             </div>
                             <button type="button" onClick={() => setOpenWarehouseModal(false)} className="flex min-h-11 shrink-0 items-center gap-2 rounded-sm px-3 text-xs font-semibold text-cream/60 hover:bg-obsidian hover:text-cream" aria-label="Close warehouse dialog">
                                 <IconClose size={17} aria-hidden="true" /> Close
                             </button>
                         </div>
-                        <p className="mt-4 text-xs leading-relaxed text-cream/60">All catalogue variants will be added to this warehouse with zero stock.</p>
-                        <div className="mt-5 space-y-4">
-                            <label className="block">
-                                <span className="mb-1.5 block text-xs text-cream/70">Warehouse Name</span>
-                                <input name="name" placeholder="Main Warehouse" className={inputStyle} required />
-                            </label>
-                            <label className="block">
-                                <span className="mb-1.5 block text-xs text-cream/70">Warehouse Code</span>
-                                <input
-                                    name="code"
-                                    placeholder="MAIN"
-                                    pattern={'[A-Za-z0-9_\\-]+'}
-                                    className={inputStyle}
-                                    required
-                                />
-                            </label>
-                        </div>
-                        <button
-                            disabled={saving}
-                            className="mt-6 h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300 disabled:opacity-50 rounded-sm"
-                        >
-                            {saving ? 'Creating Warehouse…' : 'Create Warehouse'}
-                        </button>
-                    </form>
+                        {warehouses.length > 0 && (
+                            <ul className="mt-5 space-y-3">
+                                {warehouses.map((warehouse) => {
+                                    const busy = warehouseBusyId === warehouse.id;
+                                    return (
+                                        <li key={`${warehouse.id}-${warehouse.name}-${warehouse.isActive}`}>
+                                            <form
+                                                onSubmit={(event) => void handleUpdateWarehouse(warehouse, event)}
+                                                className="flex flex-wrap items-end gap-3 border border-gold-500/15 bg-obsidian/40 p-3 rounded-sm"
+                                            >
+                                                <label className="min-w-0 flex-1">
+                                                    <span className="mb-1 block text-[10px] uppercase tracking-wider text-gold-400">{warehouse.code}</span>
+                                                    <input
+                                                        name="name"
+                                                        defaultValue={warehouse.name}
+                                                        maxLength={120}
+                                                        required
+                                                        aria-label={`${warehouse.code} warehouse name`}
+                                                        className="admin-field h-10 w-full text-sm"
+                                                    />
+                                                </label>
+                                                <label className="flex h-10 items-center gap-2 text-xs text-cream/75">
+                                                    <input type="checkbox" name="isActive" defaultChecked={warehouse.isActive} /> Active
+                                                </label>
+                                                <button
+                                                    disabled={busy}
+                                                    className="h-10 border border-gold-500/30 px-3 text-xs font-semibold text-gold-300 hover:border-gold-400 disabled:cursor-wait disabled:opacity-50 rounded-sm"
+                                                >
+                                                    {busy ? 'Saving…' : 'Save'}
+                                                </button>
+                                            </form>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                        <p className="mt-2 text-[11px] text-cream/45">
+                            Inactive warehouses keep their stock but it is not offered to customers. A warehouse holding reserved units cannot be deactivated.
+                        </p>
+                        <form onSubmit={handleCreateWarehouse} className="mt-6 border-t border-gold-500/20 pt-5">
+                            <h4 className="text-sm font-semibold text-cream">Add Warehouse</h4>
+                            <p className="mt-1 text-xs leading-relaxed text-cream/60">All catalogue variants will be added to this warehouse with zero stock.</p>
+                            <div className="mt-4 space-y-4">
+                                <label className="block">
+                                    <span className="mb-1.5 block text-xs text-cream/70">Warehouse Name</span>
+                                    <input name="name" placeholder="Main Warehouse" maxLength={120} className={inputStyle} required />
+                                </label>
+                                <label className="block">
+                                    <span className="mb-1.5 block text-xs text-cream/70">Warehouse Code</span>
+                                    <input
+                                        name="code"
+                                        placeholder="MAIN"
+                                        pattern={'[A-Za-z0-9_\\-]+'}
+                                        maxLength={40}
+                                        title="Letters, numbers, - and _ only. Saved in capitals."
+                                        onBlur={(event) => { event.currentTarget.value = event.currentTarget.value.trim().toUpperCase(); }}
+                                        className={`${inputStyle} uppercase`}
+                                        required
+                                    />
+                                    <span className="mt-1 block text-[11px] text-cream/45">Letters, numbers, - and _ only. Codes are permanent and used in CSV files.</span>
+                                </label>
+                            </div>
+                            <button
+                                disabled={saving}
+                                className="mt-6 h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300 disabled:cursor-wait disabled:opacity-50 rounded-sm"
+                            >
+                                {saving ? 'Creating Warehouse…' : 'Create Warehouse'}
+                            </button>
+                        </form>
+                    </div>
                 </div>
                 </AdminModalLayer>
             )}
@@ -2813,11 +3870,25 @@ const InventoryAdmin = () => {
                         <div className="mt-5 space-y-4">
                             <div>
                                 <p className="text-xs text-cream/50">Target SKU:</p>
-                                <p className="font-display text-lg text-gold-300">{variantsMap.get(editingLevel.variantId)?.label || editingLevel.variantId}</p>
+                                <p className="font-display text-lg text-gold-300">{inventoryLabel(editingLevel)}</p>
+                                <p className="mt-1 text-xs text-cream/55">
+                                    {editingLevel.warehouseName} ({editingLevel.warehouseCode}) · {editingLevel.reserved} reserved for open orders
+                                </p>
                             </div>
                             <label className="block">
                                 <span className="mb-1.5 block text-xs text-cream/70">On-Hand Warehouse Quantity</span>
-                                <input name="onHand" type="number" min="0" defaultValue={editingLevel.onHand} className={inputStyle} required />
+                                <input
+                                    name="onHand"
+                                    type="number"
+                                    min={editingLevel.reserved}
+                                    step="1"
+                                    defaultValue={editingLevel.onHand}
+                                    className={inputStyle}
+                                    required
+                                />
+                                <span className="mt-1 block text-[11px] text-cream/45">
+                                    Can’t go below reserved units. If an order changes this stock before you save, you’ll be asked to reload.
+                                </span>
                             </label>
                             <label className="block">
                                 <span className="mb-1.5 block text-xs text-cream/70">Low Stock Alert Threshold</span>
@@ -2825,6 +3896,7 @@ const InventoryAdmin = () => {
                                     name="lowStockThreshold"
                                     type="number"
                                     min="0"
+                                    step="1"
                                     defaultValue={editingLevel.lowStockThreshold}
                                     className={inputStyle}
                                     required
@@ -2833,7 +3905,7 @@ const InventoryAdmin = () => {
                         </div>
                         <button
                             disabled={saving}
-                            className="mt-6 h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300 rounded-sm"
+                            className="mt-6 h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300 disabled:cursor-wait disabled:opacity-50 rounded-sm"
                         >
                             {saving ? 'Updating Level…' : 'Save Stock Levels'}
                         </button>
@@ -2848,82 +3920,175 @@ const InventoryAdmin = () => {
 // ----------------------------------------------------
 // 5. PROMOTIONS & COUPON MANAGEMENT (NEW)
 // ----------------------------------------------------
+const couponStatusStyles: Record<CouponStatus, string> = {
+    Active: 'border-emerald-500/30 text-emerald-300',
+    Scheduled: 'border-sky-500/30 text-sky-300',
+    Expired: 'border-amber-500/30 text-amber-300',
+    Inactive: 'border-gold-500/30 text-cream/40',
+};
+
+type CouponPatch = Parameters<typeof api.updateCoupon>[1];
+
+interface CouponFormValues {
+    code: string;
+    type: 'PERCENT' | 'FIXED';
+    value: number;
+    minimumSubtotalPaise: number;
+    maximumDiscountPaise: number | null;
+    usageLimit: number | null;
+    perUserLimit: number | null;
+    startDate: string;
+    endDate: string;
+}
+
+const readCouponForm = (form: FormData): CouponFormValues => {
+    const text = (name: string) => String(form.get(name) ?? '').trim();
+    const optionalPaise = (name: string) => (text(name) ? rupeesToPaise(Number(text(name))) : null);
+    const optionalCount = (name: string) => (text(name) ? Number(text(name)) : null);
+    const type = form.get('type') === 'FIXED' ? 'FIXED' : 'PERCENT';
+    const value = Number(text('value'));
+    return {
+        code: normalizeCouponCode(text('code')),
+        type,
+        value: type === 'PERCENT' ? percentToBasisPoints(value) : rupeesToPaise(value),
+        minimumSubtotalPaise: rupeesToPaise(Number(text('minimumSubtotal') || 0)),
+        maximumDiscountPaise: optionalPaise('maximumDiscount'),
+        usageLimit: optionalCount('usageLimit'),
+        perUserLimit: optionalCount('perUserLimit'),
+        startDate: text('startsAt'),
+        endDate: text('endsAt'),
+    };
+};
+
+const couponFormError = (values: CouponFormValues): string | null => {
+    if (!/^[A-Z0-9_-]{1,40}$/.test(values.code)) return 'Coupon code may only use letters, numbers, - and _ (up to 40 characters).';
+    if (!Number.isFinite(values.value) || values.value < 1) return 'Enter a discount greater than zero.';
+    if (values.type === 'PERCENT' && values.value > 10_000) return 'A percentage discount cannot exceed 100%.';
+    if (!values.startDate || !values.endDate || values.endDate < values.startDate) return 'The end date must be on or after the start date.';
+    return null;
+};
+
+const couponPatch = (coupon: Coupon, values: CouponFormValues): CouponPatch => {
+    const patch: CouponPatch = {};
+    if (values.code !== coupon.code) patch.code = values.code;
+    if (values.type !== coupon.type) patch.type = values.type;
+    if (values.type !== coupon.type || values.value !== coupon.value) patch.value = values.value;
+    if (values.minimumSubtotalPaise !== coupon.minimumSubtotalPaise) patch.minimumSubtotalPaise = values.minimumSubtotalPaise;
+    if (values.maximumDiscountPaise !== (coupon.maximumDiscountPaise ?? null)) patch.maximumDiscountPaise = values.maximumDiscountPaise;
+    if (values.usageLimit !== (coupon.usageLimit ?? null)) patch.usageLimit = values.usageLimit;
+    if (values.perUserLimit !== (coupon.perUserLimit ?? null)) patch.perUserLimit = values.perUserLimit;
+    // Untouched dates are left out so an existing coupon keeps its exact start/end instants.
+    if (values.startDate !== istDateInputValue(coupon.startsAt)) patch.startsAt = istDateBoundaryIso(values.startDate);
+    if (values.endDate !== istDateInputValue(coupon.endsAt)) patch.endsAt = istDateBoundaryIso(values.endDate, true);
+    return patch;
+};
+
 const PromotionsAdmin = () => {
     const [coupons, setCoupons] = useState<Coupon[]>([]);
-    const [openModal, setOpenModal] = useState(false);
+    const [modal, setModal] = useState<{ coupon: Coupon | null } | null>(null);
+    const [discountType, setDiscountType] = useState<'PERCENT' | 'FIXED'>('PERCENT');
     const [error, setError] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
     const [saving, setSaving] = useState(false);
-    const couponDialogRef = useDialog<HTMLFormElement>(openModal, () => setOpenModal(false));
+    const [busyCouponId, setBusyCouponId] = useState<string | null>(null);
+    const [now, setNow] = useState(() => Date.now());
+    const couponDialogRef = useDialog<HTMLFormElement>(Boolean(modal), () => setModal(null));
+    const editing = modal?.coupon ?? null;
 
     const load = () =>
         api
             .coupons()
-            .then(setCoupons)
-            .catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load coupons.'));
+            .then((rows) => {
+                setCoupons(rows);
+                setNow(Date.now());
+            })
+            .catch((caught) => setError(errorMessage(caught, 'Unable to load coupons.')));
 
     useEffect(() => {
         void load();
     }, []);
 
-    const handleCreateCoupon = async (e: FormEvent<HTMLFormElement>) => {
+    const replaceCoupon = (saved: Coupon) =>
+        setCoupons((current) => current.map((item) => (item.id === saved.id ? { ...saved, redemptionCount: item.redemptionCount } : item)));
+
+    const openCouponModal = (coupon: Coupon | null) => {
+        setDiscountType(coupon?.type ?? 'PERCENT');
+        setNow(Date.now());
+        setModal({ coupon });
+    };
+
+    const handleSaveCoupon = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        setSaving(true);
         setError('');
-        const form = new FormData(e.currentTarget);
+        const values = readCouponForm(new FormData(e.currentTarget));
+        const invalid = couponFormError(values);
+        if (invalid) {
+            setError(invalid);
+            return;
+        }
+        setSaving(true);
         try {
-            await api.createCoupon({
-                code: String(form.get('code')).toUpperCase(),
-                type: form.get('type') === 'PERCENT' ? 'PERCENT' : 'FIXED',
-                value: form.get('type') === 'PERCENT'
-                    ? percentToBasisPoints(Number(form.get('value')))
-                    : Number(form.get('value')),
-                minimumSubtotalPaise: Number(form.get('minimumSubtotalPaise')) || 0,
-                maximumDiscountPaise: form.get('maximumDiscountPaise') ? Number(form.get('maximumDiscountPaise')) : undefined,
-                usageLimit: form.get('usageLimit') ? Number(form.get('usageLimit')) : undefined,
-                perUserLimit: form.get('perUserLimit') ? Number(form.get('perUserLimit')) : undefined,
-                startsAt: localDateBoundaryIso(String(form.get('startsAt'))),
-                endsAt: localDateBoundaryIso(String(form.get('endsAt')), true),
-                isActive: true,
-            });
-            setSuccessMsg('Promotional coupon created.');
-            setOpenModal(false);
-            await load();
+            if (editing) {
+                const patch = couponPatch(editing, values);
+                if (!Object.keys(patch).length) {
+                    setModal(null);
+                    return;
+                }
+                replaceCoupon(await api.updateCoupon(editing.id, patch));
+                setSuccessMsg(`Coupon ${values.code} updated.`);
+            } else {
+                const created = await api.createCoupon({
+                    code: values.code,
+                    type: values.type,
+                    value: values.value,
+                    minimumSubtotalPaise: values.minimumSubtotalPaise,
+                    maximumDiscountPaise: values.maximumDiscountPaise ?? undefined,
+                    usageLimit: values.usageLimit ?? undefined,
+                    perUserLimit: values.perUserLimit ?? undefined,
+                    startsAt: istDateBoundaryIso(values.startDate),
+                    endsAt: istDateBoundaryIso(values.endDate, true),
+                    isActive: true,
+                });
+                setCoupons((current) => [{ ...created, redemptionCount: 0 }, ...current]);
+                setSuccessMsg(`Promotional coupon ${created.code} created.`);
+            }
+            setNow(Date.now());
+            setModal(null);
         } catch (caught) {
-            setError(caught instanceof Error ? caught.message : 'Coupon creation failed.');
+            setError(errorMessage(caught, editing ? 'Coupon update failed.' : 'Coupon creation failed.'));
         } finally {
             setSaving(false);
         }
     };
 
     const toggleCoupon = async (coupon: Coupon) => {
+        if (coupon.isActive && !window.confirm(`Deactivate ${coupon.code}? Customers will no longer be able to apply it.`)) return;
+        setBusyCouponId(coupon.id);
+        setError('');
         try {
-            await api.updateCoupon(coupon.id, { isActive: !coupon.isActive });
+            replaceCoupon(await api.updateCoupon(coupon.id, { isActive: !coupon.isActive }));
             setSuccessMsg(`Coupon ${coupon.code} ${coupon.isActive ? 'deactivated' : 'activated'}.`);
-            await load();
-        } catch (caught) { setError(caught instanceof Error ? caught.message : 'Coupon update failed.'); }
+        } catch (caught) {
+            setError(errorMessage(caught, 'Coupon update failed.'));
+        } finally {
+            setBusyCouponId(null);
+        }
     };
 
-    const editCouponValue = async (coupon: Coupon) => {
-        const current = coupon.type === 'PERCENT' ? basisPointsToPercent(coupon.value) : coupon.value;
-        const raw = window.prompt(coupon.type === 'PERCENT' ? 'Discount percentage:' : 'Fixed discount in paise:', String(current));
-        if (raw === null) return;
-        const entered = Number(raw);
-        if (!Number.isFinite(entered) || entered <= 0) { setError('Enter a positive discount value.'); return; }
-        try {
-            await api.updateCoupon(coupon.id, { value: coupon.type === 'PERCENT' ? percentToBasisPoints(entered) : entered });
-            setSuccessMsg(`Coupon ${coupon.code} updated.`);
-            await load();
-        } catch (caught) { setError(caught instanceof Error ? caught.message : 'Coupon update failed.'); }
-    };
+    const valueDefault = (() => {
+        if (editing && editing.type === discountType) {
+            return discountType === 'PERCENT' ? String(basisPointsToPercent(editing.value)) : paiseToRupeesValue(editing.value);
+        }
+        return discountType === 'PERCENT' ? '10' : '100';
+    })();
 
     return (
         <AdminShell
             title="Promotions"
-            description="Create and manage coupon discounts, minimum spends and expiry dates."
+            description="Create and manage coupon discounts, minimum spends and expiry dates. All dates follow India time (IST)."
             action={
                 <button
-                    onClick={() => setOpenModal(true)}
+                    onClick={() => openCouponModal(null)}
                     className="flex h-11 items-center gap-2 bg-gold-400 px-5 text-xs font-bold uppercase tracking-wider text-obsidian shadow-lg hover:bg-gold-300"
                 >
                     <IconPlus size={16} /> Create Coupon
@@ -2935,53 +4100,84 @@ const PromotionsAdmin = () => {
 
             {/* Coupons Table */}
             <div className={`${box} overflow-x-auto`}>
-                <table className="admin-responsive-table w-full min-w-[750px] text-left text-sm">
+                <table className="admin-responsive-table w-full min-w-[900px] text-left text-sm">
                     <thead className="border-b border-gold-500/20 text-[9px] uppercase tracking-[0.2em] text-gold-400 bg-obsidian/60">
                         <tr>
                             <th className="p-4">Coupon Code</th>
                             <th className="p-4">Discount</th>
                             <th className="p-4">Min Spend</th>
-                            <th className="p-4">Usage Limit</th>
-                            <th className="p-4">Valid Period</th>
+                            <th className="p-4">Redemptions</th>
+                            <th className="p-4">Valid Period (IST)</th>
                             <th className="p-4 text-center">Status</th>
                             <th className="p-4 text-center">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gold-500/10">
-                        {coupons.map((c) => (
-                            <tr key={c.id} className="transition-colors hover:bg-gold-400/[.03]">
-                                <td data-label="Coupon" className="p-4 font-mono text-base font-bold text-gold-300">{c.code}</td>
-                                <td data-label="Discount" className="p-4 font-semibold text-cream">{c.type === 'PERCENT' ? `${basisPointsToPercent(c.value)}% OFF` : rupees(c.value)}</td>
-                                <td data-label="Min spend" className="p-4 text-xs text-cream/50">{rupees(c.minimumSubtotalPaise)}</td>
-                                <td data-label="Usage limit" className="p-4 text-xs text-cream/70">{c.usageLimit ?? 'Unlimited'}</td>
-                                <td data-label="Valid period" className="p-4 text-xs text-cream/40">
-                                    {shortDate(c.startsAt)} → {shortDate(c.endsAt)}
-                                </td>
-                                <td data-label="Status" className="p-4 text-center">
-                                    <span
-                                        className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${
-                                            c.isActive ? 'border-emerald-500/30 text-emerald-300' : 'border-gold-500/30 text-cream/40'
-                                        }`}
-                                    >
-                                        {c.isActive ? 'Active' : 'Inactive'}
-                                    </span>
-                                </td>
-                                <td data-label="Actions" className="p-4 text-center"><div className="flex justify-center gap-2"><button onClick={() => void editCouponValue(c)} className="border border-gold-500/30 px-3 py-2 text-xs text-gold-300">Edit</button><button onClick={() => void toggleCoupon(c)} className="border border-gold-500/30 px-3 py-2 text-xs text-gold-300">{c.isActive ? 'Deactivate' : 'Activate'}</button></div></td>
-                            </tr>
-                        ))}
+                        {coupons.map((c) => {
+                            const status = couponStatus(c, now);
+                            const busy = busyCouponId === c.id;
+                            return (
+                                <tr key={c.id} className="transition-colors hover:bg-gold-400/[.03]">
+                                    <td data-label="Coupon" className="p-4 font-mono text-base font-bold text-gold-300">{c.code}</td>
+                                    <td data-label="Discount" className="p-4 font-semibold text-cream">
+                                        {c.type === 'PERCENT' ? `${basisPointsToPercent(c.value)}% off` : `${rupees(c.value)} off`}
+                                        {c.maximumDiscountPaise ? (
+                                            <span className="block text-[11px] font-normal text-cream/50">Capped at {rupees(c.maximumDiscountPaise)}</span>
+                                        ) : null}
+                                    </td>
+                                    <td data-label="Min spend" className="p-4 text-xs text-cream/50">
+                                        {c.minimumSubtotalPaise ? rupees(c.minimumSubtotalPaise) : 'None'}
+                                    </td>
+                                    <td data-label="Redemptions" className="p-4 text-xs text-cream/70">
+                                        {c.redemptionCount ?? 0} / {c.usageLimit ?? '∞'} used
+                                        <span className="block text-[11px] text-cream/45">
+                                            {c.perUserLimit ? `${c.perUserLimit} per customer` : 'No per-customer limit'}
+                                        </span>
+                                    </td>
+                                    <td data-label="Valid period" className="p-4 text-xs text-cream/55">
+                                        {istDateTimeLabel(c.startsAt)}
+                                        <span className="block text-cream/40">→ {istDateTimeLabel(c.endsAt)}</span>
+                                    </td>
+                                    <td data-label="Status" className="p-4 text-center">
+                                        <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${couponStatusStyles[status]}`}>
+                                            {status}
+                                        </span>
+                                    </td>
+                                    <td data-label="Actions" className="p-4 text-center">
+                                        <div className="flex justify-center gap-2">
+                                            <button
+                                                onClick={() => openCouponModal(c)}
+                                                disabled={busy}
+                                                className="border border-gold-500/30 px-3 py-2 text-xs text-gold-300 hover:border-gold-400 disabled:opacity-40"
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                onClick={() => void toggleCoupon(c)}
+                                                disabled={busy}
+                                                className="border border-gold-500/30 px-3 py-2 text-xs text-gold-300 hover:border-gold-400 disabled:cursor-wait disabled:opacity-40"
+                                            >
+                                                {busy ? 'Saving…' : c.isActive ? 'Deactivate' : 'Activate'}
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
                 {!coupons.length && <p className="p-10 text-center text-sm text-cream/40">No promotional coupon codes created yet.</p>}
             </div>
 
-            {/* Create Coupon Modal */}
-            {openModal && (
+            {/* Create / Edit Coupon Modal */}
+            {modal && (
                 <AdminModalLayer>
                 <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/85 p-5 backdrop-blur-sm">
                     <form
+                        key={editing?.id ?? 'new'}
                         ref={couponDialogRef}
                         tabIndex={-1}
-                        onSubmit={handleCreateCoupon}
+                        onSubmit={handleSaveCoupon}
                         className="max-h-[calc(100svh-2rem)] w-full max-w-lg overflow-y-auto border border-gold-500/30 bg-carbon p-6 rounded-sm shadow-2xl outline-none"
                         role="dialog"
                         aria-modal="true"
@@ -2989,54 +4185,122 @@ const PromotionsAdmin = () => {
                     >
                         <div className="flex justify-between border-b border-gold-500/20 pb-4">
                             <h3 id="coupon-dialog-title" className="font-display text-2xl text-cream">
-                                Create Promo Coupon
+                                {editing ? `Edit ${editing.code}` : 'Create Promo Coupon'}
                             </h3>
-                            <button type="button" onClick={() => setOpenModal(false)} className="flex min-h-11 shrink-0 items-center gap-2 rounded-sm px-3 text-xs font-semibold text-cream/60 hover:bg-obsidian hover:text-cream" aria-label="Close coupon dialog">
+                            <button type="button" onClick={() => setModal(null)} className="flex min-h-11 shrink-0 items-center gap-2 rounded-sm px-3 text-xs font-semibold text-cream/60 hover:bg-obsidian hover:text-cream" aria-label="Close coupon dialog">
                                 <IconClose size={17} aria-hidden="true" /> Close
                             </button>
                         </div>
                         <div className="mt-5 grid gap-4 sm:grid-cols-2">
                             <label className="sm:col-span-2">
                                 <span className="mb-1 block text-xs text-cream/70">Coupon Code</span>
-                                <input name="code" placeholder="WELCOME10" className={inputStyle} required />
+                                <input
+                                    name="code"
+                                    placeholder="WELCOME10"
+                                    defaultValue={editing?.code ?? ''}
+                                    pattern={COUPON_CODE_PATTERN}
+                                    maxLength={40}
+                                    title="Letters, numbers, - and _ only. Saved in capitals."
+                                    onBlur={(event) => { event.currentTarget.value = normalizeCouponCode(event.currentTarget.value); }}
+                                    className={`${inputStyle} uppercase`}
+                                    required
+                                />
+                                <span className="mt-1 block text-[11px] text-cream/45">Letters, numbers, - and _ only. Customers can type it in any case.</span>
                             </label>
                             <label>
                                 <span className="mb-1 block text-xs text-cream/70">Discount Type</span>
-                                <select name="type" className={inputStyle}>
+                                <select
+                                    name="type"
+                                    value={discountType}
+                                    onChange={(event) => setDiscountType(event.target.value === 'FIXED' ? 'FIXED' : 'PERCENT')}
+                                    className={inputStyle}
+                                >
                                     <option value="PERCENT">Percentage (%)</option>
-                                    <option value="FIXED">Fixed Amount (Paise)</option>
+                                    <option value="FIXED">Fixed Amount (₹)</option>
                                 </select>
                             </label>
                             <label>
-                                <span className="mb-1 block text-xs text-cream/70">Discount Value (e.g. 15 for 15%)</span>
-                                <input name="value" type="number" min="1" defaultValue="15" className={inputStyle} required />
+                                <span className="mb-1 block text-xs text-cream/70">
+                                    {discountType === 'PERCENT' ? 'Discount (%) · 0.01 – 100' : 'Discount Amount (₹)'}
+                                </span>
+                                <input
+                                    key={discountType}
+                                    name="value"
+                                    type="number"
+                                    min="0.01"
+                                    max={discountType === 'PERCENT' ? '100' : undefined}
+                                    step="0.01"
+                                    placeholder={discountType === 'PERCENT' ? 'e.g. 15 for 15% off' : 'e.g. 250 for ₹250 off'}
+                                    defaultValue={valueDefault}
+                                    className={inputStyle}
+                                    required
+                                />
                             </label>
                             <label>
-                                <span className="mb-1 block text-xs text-cream/70">Min Subtotal in Paise</span>
-                                <input name="minimumSubtotalPaise" type="number" defaultValue="0" className={inputStyle} />
+                                <span className="mb-1 block text-xs text-cream/70">Minimum Order Subtotal (₹)</span>
+                                <input
+                                    name="minimumSubtotal"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    defaultValue={editing ? paiseToRupeesValue(editing.minimumSubtotalPaise) : '0'}
+                                    className={inputStyle}
+                                />
                             </label>
                             <label>
-                                <span className="mb-1 block text-xs text-cream/70">Usage Limit (Max Uses)</span>
-                                <input name="usageLimit" type="number" placeholder="Optional" className={inputStyle} />
+                                <span className="mb-1 block text-xs text-cream/70">Maximum Discount (₹)</span>
+                                <input
+                                    name="maximumDiscount"
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    placeholder="Optional — no cap"
+                                    defaultValue={editing?.maximumDiscountPaise ? paiseToRupeesValue(editing.maximumDiscountPaise) : ''}
+                                    className={inputStyle}
+                                />
+                                <span className="mt-1 block text-[11px] text-cream/45">Caps percentage discounts on large orders.</span>
                             </label>
                             <label>
-                                <span className="mb-1 block text-xs text-cream/70">Maximum Discount in Paise</span>
-                                <input name="maximumDiscountPaise" type="number" min="1" placeholder="Optional" className={inputStyle} />
+                                <span className="mb-1 block text-xs text-cream/70">Total Usage Limit</span>
+                                <input
+                                    name="usageLimit"
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    placeholder="Optional — unlimited"
+                                    defaultValue={editing?.usageLimit ?? ''}
+                                    className={inputStyle}
+                                />
                             </label>
                             <label>
                                 <span className="mb-1 block text-xs text-cream/70">Uses Per Customer</span>
-                                <input name="perUserLimit" type="number" min="1" placeholder="Optional" className={inputStyle} />
+                                <input
+                                    name="perUserLimit"
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    placeholder="Optional — unlimited"
+                                    defaultValue={editing?.perUserLimit ?? ''}
+                                    className={inputStyle}
+                                />
+                                <span className="mt-1 block text-[11px] text-cream/45">Setting this requires customers to sign in — guests can’t use the coupon.</span>
                             </label>
                             <label>
-                                <span className="mb-1 block text-xs text-cream/70">Starts At</span>
-                                <input name="startsAt" type="date" defaultValue={new Date().toISOString().split('T')[0]} className={inputStyle} required />
+                                <span className="mb-1 block text-xs text-cream/70">Starts (IST, from 00:00)</span>
+                                <input
+                                    name="startsAt"
+                                    type="date"
+                                    defaultValue={istDateInputValue(editing?.startsAt ?? now)}
+                                    className={inputStyle}
+                                    required
+                                />
                             </label>
                             <label>
-                                <span className="mb-1 block text-xs text-cream/70">Ends At</span>
+                                <span className="mb-1 block text-xs text-cream/70">Ends (IST, through 23:59)</span>
                                 <input
                                     name="endsAt"
                                     type="date"
-                                    defaultValue={new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0]}
+                                    defaultValue={editing ? istDateInputValue(editing.endsAt) : istDateInputValue(now, 30)}
                                     className={inputStyle}
                                     required
                                 />
@@ -3044,9 +4308,9 @@ const PromotionsAdmin = () => {
                         </div>
                         <button
                             disabled={saving}
-                            className="mt-6 h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300 rounded-sm"
+                            className="mt-6 h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-wider text-obsidian hover:bg-gold-300 disabled:cursor-wait disabled:opacity-50 rounded-sm"
                         >
-                            {saving ? 'Creating…' : 'Publish Promo Code'}
+                            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Publish Promo Code'}
                         </button>
                     </form>
                 </div>
@@ -3059,22 +4323,153 @@ const PromotionsAdmin = () => {
 // ----------------------------------------------------
 // 6. AUDIT LOGS & SYSTEM SECURITY (NEW)
 // ----------------------------------------------------
+const AUDIT_PAGE_SIZE = 50;
+
+/** Start or end of a calendar day (from a date input) in the browser's time zone, as ISO. */
+const dayBoundaryIso = (value: string, endOfDay = false): string =>
+    new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`).toISOString();
+
+interface AuditFilterDraft {
+    actorId: string;
+    entityType: string;
+    action: string;
+    from: string;
+    to: string;
+}
+
+const emptyAuditFilters: AuditFilterDraft = { actorId: '', entityType: '', action: '', from: '', to: '' };
+
+const auditQuery = (filters: AuditFilterDraft, cursor?: string): AuditLogFilters => ({
+    limit: AUDIT_PAGE_SIZE,
+    cursor,
+    actorId: filters.actorId || undefined,
+    entityType: filters.entityType || undefined,
+    action: filters.action.trim() || undefined,
+    from: filters.from ? dayBoundaryIso(filters.from) : undefined,
+    to: filters.to ? dayBoundaryIso(filters.to, true) : undefined,
+});
+
 const AuditLogsAdmin = () => {
     const [logs, setLogs] = useState<AuditLog[]>([]);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState('');
+    const [staff, setStaff] = useState<StaffUser[]>([]);
+    const [draft, setDraft] = useState<AuditFilterDraft>(emptyAuditFilters);
+    const [filters, setFilters] = useState<AuditFilterDraft>(emptyAuditFilters);
+    const [reloadKey, setReloadKey] = useState(0);
+    const staffById = useMemo(() => new Map(staff.map((member) => [member.id, member])), [staff]);
+    const filtered = Object.values(filters).some(Boolean);
 
     useEffect(() => {
-        api.auditLogs()
-            .then(setLogs)
-            .catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load audit logs.'));
+        // Staff names fill the actor filter and label role changes recorded before emails were stored.
+        api.staffUsers().then(setStaff).catch(() => undefined);
     }, []);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        setLoading(true);
+        setError('');
+        api.auditLogs(auditQuery(filters), controller.signal)
+            .then((page) => {
+                setLogs(page.items);
+                setNextCursor(page.nextCursor);
+            })
+            .catch((caught) => {
+                if (controller.signal.aborted) return;
+                setLogs([]);
+                setNextCursor(null);
+                setError(caught instanceof Error ? caught.message : 'Unable to load audit logs.');
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setLoading(false);
+            });
+        return () => controller.abort();
+    }, [filters, reloadKey]);
+
+    const loadMore = async () => {
+        if (!nextCursor || loadingMore) return;
+        setLoadingMore(true);
+        try {
+            const page = await api.auditLogs(auditQuery(filters, nextCursor));
+            setLogs((current) => [...current, ...page.items]);
+            setNextCursor(page.nextCursor);
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Unable to load more activity.');
+        } finally {
+            setLoadingMore(false);
+        }
+    };
+
+    const applyFilters = (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (draft.from && draft.to && draft.from > draft.to) {
+            setError('The start date must be on or before the end date.');
+            return;
+        }
+        setFilters({ ...draft, action: draft.action.trim() });
+    };
+
+    const resetFilters = () => {
+        setDraft(emptyAuditFilters);
+        setFilters(emptyAuditFilters);
+    };
+
+    const recordLabel = (log: AuditLog): string => {
+        if (log.entityType === 'user' && !log.metadata?.entityLabel && log.entityId) {
+            const member = staffById.get(log.entityId);
+            if (member) return member.fullName ? `${member.fullName} · ${member.email}` : member.email;
+        }
+        return auditEntityLabel(log);
+    };
 
     return (
         <AdminShell
             title="Activity log"
-            description="Review staff actions, affected records and access details across the admin workspace."
+            description="Review staff actions, sign-ins, affected records and access details across the admin workspace."
+            action={
+                <button type="button" onClick={() => setReloadKey((key) => key + 1)} disabled={loading} className="button-secondary gap-2">
+                    <IconRefresh size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+                </button>
+            }
         >
             <NotificationToast message={error} type="error" onClose={() => setError('')} />
+
+            <form onSubmit={applyFilters} className={`${box} mb-5 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_0.8fr_0.8fr_auto] lg:items-end`} aria-label="Filter activity">
+                <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">Staff member</span>
+                    <select value={draft.actorId} onChange={(event) => setDraft({ ...draft, actorId: event.target.value })} className={inputStyle}>
+                        <option value="">Everyone</option>
+                        {staff.map((member) => (
+                            <option key={member.id} value={member.id}>{member.fullName ? `${member.fullName} (${member.email})` : member.email}</option>
+                        ))}
+                    </select>
+                </label>
+                <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">Record type</span>
+                    <select value={draft.entityType} onChange={(event) => setDraft({ ...draft, entityType: event.target.value })} className={inputStyle}>
+                        <option value="">All records</option>
+                        {auditEntityTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                </label>
+                <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">Action contains</span>
+                    <input value={draft.action} onChange={(event) => setDraft({ ...draft, action: event.target.value })} placeholder="e.g. role, refund, signed_in" maxLength={80} className={inputStyle} />
+                </label>
+                <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">From</span>
+                    <input type="date" value={draft.from} max={draft.to || undefined} onChange={(event) => setDraft({ ...draft, from: event.target.value })} className={inputStyle} />
+                </label>
+                <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">To</span>
+                    <input type="date" value={draft.to} min={draft.from || undefined} onChange={(event) => setDraft({ ...draft, to: event.target.value })} className={inputStyle} />
+                </label>
+                <div className="flex gap-2">
+                    <button type="submit" className="button-primary h-12 gap-2"><IconFilter size={15} /> Apply</button>
+                    {filtered && <button type="button" onClick={resetFilters} className="button-secondary h-12">Clear</button>}
+                </div>
+            </form>
 
             <div className={`${box} overflow-x-auto`}>
                 <table className="admin-responsive-table w-full min-w-[1100px] text-left text-xs">
@@ -3088,7 +4483,7 @@ const AuditLogsAdmin = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gold-500/10">
-                        {logs.map((log) => {
+                        {!loading && logs.map((log) => {
                             const changes = auditChangeRows(log);
                             const facts = auditFactRows(log);
                             return (
@@ -3097,12 +4492,12 @@ const AuditLogsAdmin = () => {
                                         <time dateTime={log.createdAt}>{new Date(log.createdAt).toLocaleString('en-IN')}</time>
                                     </td>
                                     <td data-label="Staff" className="p-4">
-                                        <p className="font-medium text-cream">{log.actorLabel || (log.actorId ? 'Unknown staff member' : 'System')}</p>
+                                        <p className="font-medium text-cream">{log.actorLabel || (log.actorId ? 'Former staff member' : 'System')}</p>
                                         {log.actorId && <p className="mt-1 font-mono text-[10px] text-cream/35">{log.actorId}</p>}
                                     </td>
                                     <td data-label="Action" className="p-4">
                                         <p className="font-semibold text-gold-300">{auditActionLabel(log)}</p>
-                                        <p className="mt-1 text-cream/75">{auditEntityLabel(log)}</p>
+                                        <p className="mt-1 text-cream/75">{recordLabel(log)}</p>
                                         <p className="mt-1 font-mono text-[10px] text-cream/35">
                                             {log.entityType}{log.entityId ? ` · ${log.entityId}` : ''}
                                         </p>
@@ -3139,7 +4534,26 @@ const AuditLogsAdmin = () => {
                         })}
                     </tbody>
                 </table>
-                {!logs.length && <p className="p-10 text-center text-sm text-cream/40">No audit log records found.</p>}
+                {loading ? (
+                    <div className="flex items-center justify-center gap-3 p-10 text-sm text-cream/50" role="status">
+                        <span className="size-2 animate-pulse rounded-full bg-[#d3912e]" /> Loading activity…
+                    </div>
+                ) : !logs.length ? (
+                    <p className="p-10 text-center text-sm text-cream/40">
+                        {error ? 'Activity could not be loaded.' : filtered ? 'No activity matches these filters.' : 'No audit log records found.'}
+                    </p>
+                ) : (
+                    <div className="flex flex-col items-center gap-2 border-t border-gold-500/10 p-4 text-xs text-cream/45 sm:flex-row sm:justify-between">
+                        <span>Showing {logs.length} {logs.length === 1 ? 'record' : 'records'}, newest first</span>
+                        {nextCursor ? (
+                            <button type="button" onClick={() => void loadMore()} disabled={loadingMore} className="button-secondary h-10 disabled:opacity-50">
+                                {loadingMore ? 'Loading…' : 'Load older activity'}
+                            </button>
+                        ) : (
+                            <span>End of activity</span>
+                        )}
+                    </div>
+                )}
             </div>
         </AdminShell>
     );
@@ -3148,17 +4562,43 @@ const AuditLogsAdmin = () => {
 // ----------------------------------------------------
 // 7. OPERATIONS & INFRASTRUCTURE MONITORING
 // ----------------------------------------------------
+type SignalStatus = 'pass' | 'attention' | 'unknown';
+
+const countSignal = (label: string, value: number): { label: string; value: string; status: SignalStatus } => ({
+    label,
+    value: metricValue(value),
+    status: value < 0 ? 'unknown' : value === 0 ? 'pass' : 'attention',
+});
+
+const signalBadge: Record<SignalStatus, { text: string; className: string }> = {
+    pass: { text: 'Pass', className: 'bg-emerald-950/30 text-emerald-300' },
+    attention: { text: 'Attention', className: 'bg-amber-950/30 text-amber-300' },
+    unknown: { text: 'Not checked', className: 'bg-red-950/30 text-red-300' },
+};
+
+const healthToneClass: Record<HealthTone, string> = {
+    ok: 'text-emerald-400',
+    warning: 'text-amber-400',
+    critical: 'text-red-400',
+};
+
 const OperationsAdmin = () => {
     const [ops, setOps] = useState<OperationsSnapshot | null>(null);
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    const load = () => {
+    const load = async (fresh = false) => {
         setRefreshing(true);
-        api.operations()
-            .then(setOps)
-            .catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load operations.'))
-            .finally(() => setRefreshing(false));
+        setError('');
+        try {
+            setOps(await api.operations({ fresh }));
+        } catch (caught) {
+            setError(caught instanceof Error ? caught.message : 'Unable to load operations.');
+        } finally {
+            setRefreshing(false);
+            setLoading(false);
+        }
     };
 
     useEffect(() => {
@@ -3167,16 +4607,21 @@ const OperationsAdmin = () => {
 
     const signals = ops
         ? [
-              ['Database Engine', ops.databaseHealthy ? 'Healthy' : 'Unhealthy'],
-              ['API Server Errors', ops.apiServerErrorsTotal],
-              ['Failed Webhooks', ops.failedWebhooks],
-              ['Terminal Job Failures', ops.terminalJobFailures],
-              ['Expired Pending Payments', ops.expiredPendingPayments],
-              ['Payment Mismatches', ops.paymentMismatches],
-              ['Failed Refunds', ops.failedRefunds],
-              ['Low-stock SKUs Alert', ops.lowStockSkus],
+              {
+                  label: 'Database Engine',
+                  value: ops.databaseHealthy ? 'Healthy' : 'Unreachable',
+                  status: (ops.databaseHealthy ? 'pass' : 'attention') as SignalStatus,
+              },
+              countSignal('API Server Errors (since restart)', ops.apiServerErrorsTotal),
+              countSignal('Failed Webhooks', ops.failedWebhooks),
+              countSignal('Terminal Job Failures', ops.terminalJobFailures),
+              countSignal('Expired Pending Payments', ops.expiredPendingPayments),
+              countSignal('Payment Mismatches', ops.paymentMismatches),
+              countSignal('Failed Refunds', ops.failedRefunds),
+              countSignal('Low-stock SKUs Alert', ops.lowStockSkus),
           ]
         : [];
+    const health = ops ? operationsHealth(ops) : null;
 
     return (
         <AdminShell
@@ -3184,7 +4629,7 @@ const OperationsAdmin = () => {
             description="Monitor the database, API errors, webhooks and background processing."
             action={
                 <button
-                    onClick={() => void load()}
+                    onClick={() => void load(true)}
                     disabled={refreshing}
                     className="flex items-center gap-2 border border-gold-400 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-gold-300 hover:bg-gold-400 hover:text-obsidian"
                 >
@@ -3192,34 +4637,49 @@ const OperationsAdmin = () => {
                 </button>
             }
         >
-            <NotificationToast message={error} type="error" onClose={() => setError('')} />
+            {ops && <NotificationToast message={error} type="error" onClose={() => setError('')} />}
+
+            {!ops && loading && (
+                <div className={`${box} flex items-center justify-center gap-3 p-10 text-sm text-cream/50`} role="status">
+                    <span className="size-2 animate-pulse rounded-full bg-[#d3912e]" /> Checking system health…
+                </div>
+            )}
+
+            {!ops && !loading && (
+                <div className={`${box} flex flex-col items-center gap-4 p-10 text-center`} role="alert">
+                    <IconAlert size={26} className="text-red-400" />
+                    <div>
+                        <p className="text-sm font-semibold text-cream">System health could not be checked</p>
+                        <p className="mt-1 text-xs text-cream/55">{error || 'The health service did not respond.'}</p>
+                    </div>
+                    <button type="button" onClick={() => void load(true)} disabled={refreshing} className="button-primary gap-2">
+                        <IconRefresh size={15} className={refreshing ? 'animate-spin' : ''} /> {refreshing ? 'Retrying…' : 'Retry'}
+                    </button>
+                </div>
+            )}
 
             <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-                {signals.map(([label, value]) => {
-                    const healthy = value === 'Healthy' || value === 0;
+                {signals.map((signal) => {
+                    const badge = signalBadge[signal.status];
                     return (
-                        <article key={String(label)} className={`${box} p-6 transition-colors hover:border-gold-500/40`}>
+                        <article key={signal.label} className={`${box} p-6 transition-colors hover:border-gold-500/40`}>
                             <div className="flex items-center justify-between">
-                                <span className={healthy ? 'text-emerald-400' : 'text-amber-400'}>
-                                    {healthy ? <IconCheckCircle color="#10B981" size={22} /> : <IconAlert size={22} />}
+                                <span className={signal.status === 'pass' ? 'text-emerald-400' : signal.status === 'attention' ? 'text-amber-400' : 'text-red-400'}>
+                                    {signal.status === 'pass' ? <IconCheckCircle color="#10B981" size={22} /> : <IconAlert size={22} />}
                                 </span>
-                                <span
-                                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${healthy ? 'bg-emerald-950/30 text-emerald-300' : 'bg-amber-950/30 text-amber-300'}`}
-                                >
-                                    {healthy ? 'Pass' : 'Attention'}
-                                </span>
+                                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${badge.className}`}>{badge.text}</span>
                             </div>
-                            <p className="mt-4 text-[10px] uppercase tracking-[0.2em] font-semibold text-cream/40">{label}</p>
-                            <strong className="mt-2 block font-display text-3xl text-cream">{String(value)}</strong>
+                            <p className="mt-4 text-[10px] uppercase tracking-[0.2em] font-semibold text-cream/40">{signal.label}</p>
+                            <strong className="mt-2 block font-display text-3xl text-cream">{signal.value}</strong>
                         </article>
                     );
                 })}
             </div>
 
-            {ops && (
+            {ops && health && (
                 <div className="mt-6 flex flex-col gap-2 border-t border-gold-500/15 pt-4 text-xs text-cream/40 sm:flex-row sm:items-center sm:justify-between">
                     <span>Telemetry check timestamp: {new Date(ops.checkedAt).toLocaleString('en-IN')}</span>
-                    <span className="text-emerald-400">All system components operating nominal</span>
+                    <span className={healthToneClass[health.tone]} role="status">{health.label}</span>
                 </div>
             )}
         </AdminShell>
@@ -3265,22 +4725,52 @@ const staffRoleOptions: Array<{
 
 const roleLabel = (role: StaffRole) => staffRoleOptions.find((option) => option.value === role)?.label || role;
 
+type StaffAccountAction = 'suspend' | 'reinstate' | 'reset';
+
+const staffAccountPrompts: Record<StaffAccountAction, { title: (member: { name: string; email: string }) => string; detail: string; confirm: string; busy: string }> = {
+    suspend: {
+        title: ({ name }) => `Suspend ${name}?`,
+        detail: 'They are signed out everywhere and cannot sign in until reinstated. Their roles stay in place for when they return.',
+        confirm: 'Suspend account',
+        busy: 'Suspending…',
+    },
+    reinstate: {
+        title: ({ name }) => `Reinstate ${name}?`,
+        detail: 'They can sign in again with their existing password and roles.',
+        confirm: 'Reinstate account',
+        busy: 'Reinstating…',
+    },
+    reset: {
+        title: ({ email }) => `Email a password reset link to ${email}?`,
+        detail: 'They choose a new password from the link in the email. Their current password keeps working until they do.',
+        confirm: 'Send reset email',
+        busy: 'Sending…',
+    },
+};
+
 const StaffRoleEditor = ({
     user,
     currentUserId,
     onSaved,
     onCancel,
     onError,
+    onAccountChanged,
 }: {
     user: StaffUser;
     currentUserId?: string;
     onSaved: (success: boolean) => Promise<void>;
     onCancel: () => void;
     onError: (message: string) => void;
+    onAccountChanged: (message: string) => Promise<void>;
 }) => {
     const [selectedRoles, setSelectedRoles] = useState<StaffRole[]>(user.roles);
     const [saving, setSaving] = useState(false);
+    const [confirmingRemoval, setConfirmingRemoval] = useState(false);
+    const [accountAction, setAccountAction] = useState<StaffAccountAction | null>(null);
+    const [accountBusy, setAccountBusy] = useState(false);
     const isSelf = user.id === currentUserId;
+    const memberName = user.fullName || user.email;
+    const removingAllAccess = selectedRoles.length === 0;
     const changed = staffRoleOptions.some(({ value }) => selectedRoles.includes(value) !== user.roles.includes(value));
 
     useEffect(() => {
@@ -3288,10 +4778,16 @@ const StaffRoleEditor = ({
     }, [user.roles.join('|')]);
 
     const toggleRole = (role: StaffRole) => {
+        setConfirmingRemoval(false);
         setSelectedRoles((current) => current.includes(role) ? current.filter((item) => item !== role) : [...current, role]);
     };
 
     const save = async () => {
+        // Removing every role strands the account (it has no customer role either), so ask first.
+        if (removingAllAccess && !confirmingRemoval) {
+            setConfirmingRemoval(true);
+            return;
+        }
         setSaving(true);
         onError('');
         const rolesToAdd = selectedRoles.filter((role) => !user.roles.includes(role));
@@ -3308,6 +4804,30 @@ const StaffRoleEditor = ({
             setSaving(false);
         }
     };
+
+    const runAccountAction = async (action: StaffAccountAction) => {
+        setAccountBusy(true);
+        onError('');
+        try {
+            if (action === 'suspend') await api.suspendStaffUser(user.id);
+            else if (action === 'reinstate') await api.reinstateStaffUser(user.id);
+            else await api.sendStaffPasswordReset(user.id);
+            setAccountAction(null);
+            await onAccountChanged(
+                action === 'suspend'
+                    ? `${memberName} is suspended and has been signed out.`
+                    : action === 'reinstate'
+                        ? `${memberName} can sign in again.`
+                        : `Password reset email sent to ${user.email}.`,
+            );
+        } catch (caught) {
+            onError(caught instanceof Error ? caught.message : 'The account change could not be completed.');
+        } finally {
+            setAccountBusy(false);
+        }
+    };
+
+    const accountPrompt = accountAction && staffAccountPrompts[accountAction];
 
     return (
         <div className="border-t border-[#e8e5dc] bg-[#fbfaf7] px-4 py-5 sm:px-6">
@@ -3327,7 +4847,7 @@ const StaffRoleEditor = ({
                                     <input
                                         type="checkbox"
                                         checked={checked}
-                                        disabled={locked || saving}
+                                        disabled={locked || saving || accountBusy}
                                         onChange={() => toggleRole(option.value)}
                                         className="mt-0.5 size-4 accent-[#b87820]"
                                     />
@@ -3339,14 +4859,77 @@ const StaffRoleEditor = ({
                             );
                         })}
                     </div>
-                    {!selectedRoles.length && <p className="mt-3 text-xs font-medium text-[#a44c36]">Saving with no roles will remove this account from the staff workspace.</p>}
+                    {removingAllAccess && !confirmingRemoval && <p className="mt-3 text-xs font-medium text-[#a44c36]">Saving with no roles will remove this account from the staff workspace.</p>}
                 </fieldset>
-                <div className="flex shrink-0 items-center gap-2">
-                    <button type="button" onClick={onCancel} disabled={saving} className="button-secondary">Cancel</button>
-                    <button type="button" onClick={() => void save()} disabled={!changed || saving} className="button-primary disabled:cursor-not-allowed disabled:opacity-45">
-                        {saving ? 'Saving…' : 'Save access'}
-                    </button>
+                {confirmingRemoval ? (
+                    <div className="max-w-md rounded-xl border border-[#e3b8a9] bg-[#fff4f0] p-4" role="alertdialog" aria-labelledby={`remove-access-${user.id}`}>
+                        <p id={`remove-access-${user.id}`} className="text-sm font-semibold text-[#7c2f1d]">Remove all access for {user.fullName || user.email}?</p>
+                        <p className="mt-1 text-xs leading-5 text-[#8f4a37]">They will lose the admin workspace on their next request and leave the team directory. To restore access later, use Invite team member → Existing account.</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            <button type="button" onClick={() => setConfirmingRemoval(false)} disabled={saving} className="button-secondary">Keep editing</button>
+                            <button type="button" onClick={() => void save()} disabled={saving} className="button-primary !bg-[#a44c36] disabled:opacity-45">
+                                {saving ? 'Removing…' : 'Remove all access'}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex shrink-0 items-center gap-2">
+                        <button type="button" onClick={onCancel} disabled={saving} className="button-secondary">Cancel</button>
+                        <button type="button" onClick={() => void save()} disabled={!changed || saving || accountBusy} className="button-primary disabled:cursor-not-allowed disabled:opacity-45">
+                            {saving ? 'Saving…' : removingAllAccess ? 'Remove access…' : 'Save access'}
+                        </button>
+                    </div>
+                )}
+            </div>
+            <div className="mt-5 flex flex-col gap-4 border-t border-[#e8e5dc] pt-5 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[#252925]">Account</p>
+                    <p className="mt-1 max-w-xl text-xs leading-5 text-[#747971]">
+                        {user.suspended
+                            ? 'Suspended: this person cannot sign in until the account is reinstated. Their roles are kept.'
+                            : 'Send a password reset link, or suspend sign-in without removing any roles.'}
+                    </p>
                 </div>
+                {accountAction && accountPrompt ? (
+                    <div className={`max-w-md rounded-xl border p-4 ${accountAction === 'suspend' ? 'border-[#e3b8a9] bg-[#fff4f0]' : 'border-[#dedbd2] bg-white'}`} role="alertdialog" aria-labelledby={`account-action-${user.id}`}>
+                        <p id={`account-action-${user.id}`} className={`text-sm font-semibold ${accountAction === 'suspend' ? 'text-[#7c2f1d]' : 'text-[#252925]'}`}>{accountPrompt.title({ name: memberName, email: user.email })}</p>
+                        <p className={`mt-1 text-xs leading-5 ${accountAction === 'suspend' ? 'text-[#8f4a37]' : 'text-[#747971]'}`}>{accountPrompt.detail}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            <button type="button" onClick={() => setAccountAction(null)} disabled={accountBusy} className="button-secondary">Keep as is</button>
+                            <button
+                                type="button"
+                                onClick={() => void runAccountAction(accountAction)}
+                                disabled={accountBusy}
+                                className={`button-primary disabled:opacity-45 ${accountAction === 'suspend' ? '!bg-[#a44c36]' : ''}`}
+                            >
+                                {accountBusy ? accountPrompt.busy : accountPrompt.confirm}
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setAccountAction('reset')}
+                            disabled={saving || accountBusy || Boolean(user.suspended)}
+                            title={user.suspended ? 'Reinstate the account before sending a password reset' : undefined}
+                            className="button-secondary disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            Send password reset
+                        </button>
+                        {user.suspended ? (
+                            <button type="button" onClick={() => setAccountAction('reinstate')} disabled={saving || accountBusy} className="button-secondary disabled:opacity-45">
+                                Reinstate account
+                            </button>
+                        ) : isSelf ? (
+                            <span className="text-[11px] text-[#777c75]">You cannot suspend your own account.</span>
+                        ) : (
+                            <button type="button" onClick={() => setAccountAction('suspend')} disabled={saving || accountBusy} className="button-secondary !text-[#a44c36] disabled:opacity-45">
+                                Suspend account
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -3361,6 +4944,7 @@ const UsersAdmin = () => {
     const [saving, setSaving] = useState(false);
     const [loading, setLoading] = useState(true);
     const [inviteOpen, setInviteOpen] = useState(false);
+    const [inviteMode, setInviteMode] = useState<'new' | 'existing'>('new');
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [roleFilter, setRoleFilter] = useState<'ALL' | StaffRole>('ALL');
@@ -3392,20 +4976,27 @@ const UsersAdmin = () => {
         setCreatedUser(null);
 
         try {
-            const created = await api.createStaffUser({
-                email: email.trim(),
-                role,
-                ...(fullName.trim() ? { fullName: fullName.trim() } : {}),
-            });
-            setCreatedUser(created);
-            setSuccessMsg(`${created.user.email} can now sign in with the generated temporary password.`);
+            if (inviteMode === 'existing') {
+                const granted = await api.grantStaffAccess({ email: email.trim(), role });
+                setSuccessMsg(`${granted.email} now has ${roleLabel(role)} access and signs in with their existing password.`);
+            } else {
+                const created = await api.createStaffUser({
+                    email: email.trim(),
+                    role,
+                    ...(fullName.trim() ? { fullName: fullName.trim() } : {}),
+                });
+                setCreatedUser(created);
+                setSuccessMsg(`${created.user.email} can now sign in with the generated temporary password.`);
+                setPasswordCopied(false);
+            }
             setEmail('');
             setFullName('');
             setRole('SUPPORT_AGENT');
-            setPasswordCopied(false);
             setInviteOpen(false);
             await load();
         } catch (caught) {
+            // The email already has an account: offer to grant access to it instead.
+            if (caught instanceof ApiError && caught.status === 409 && inviteMode === 'new') setInviteMode('existing');
             setError(caught instanceof Error ? caught.message : 'Staff account creation failed.');
         } finally {
             setSaving(false);
@@ -3418,7 +5009,8 @@ const UsersAdmin = () => {
         const matchesRole = roleFilter === 'ALL' || user.roles.includes(roleFilter);
         return matchesSearch && matchesRole;
     });
-    const administratorCount = staffUsers.filter((user) => user.roles.includes('ADMIN')).length;
+    const administratorCount = staffUsers.filter((user) => user.roles.includes('ADMIN') && !user.suspended).length;
+    const suspendedCount = staffUsers.filter((user) => user.suspended).length;
 
     const copyTemporaryPassword = async () => {
         if (!createdUser) return;
@@ -3451,8 +5043,9 @@ const UsersAdmin = () => {
                     <p className="mt-1 text-2xl font-bold tracking-[-0.03em] text-[#252925]">{loading ? '—' : staffUsers.length}</p>
                 </div>
                 <div className="border-b border-[#e5e2da] px-4 py-4 min-[420px]:border-b-0 min-[420px]:border-r min-[420px]:px-3 sm:px-5">
-                    <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8a8e88] sm:text-[10px] sm:tracking-[0.13em]">Administrators</p>
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8a8e88] sm:text-[10px] sm:tracking-[0.13em]">Active administrators</p>
                     <p className="mt-1 text-2xl font-bold tracking-[-0.03em] text-[#252925]">{loading ? '—' : administratorCount}</p>
+                    {!loading && suspendedCount > 0 && <p className="mt-0.5 text-[11px] font-medium text-[#a44c36]">{suspendedCount} suspended {suspendedCount === 1 ? 'account' : 'accounts'}</p>}
                 </div>
                 <div className="px-4 py-4 min-[420px]:px-3 sm:px-5">
                     <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[#8a8e88] sm:text-[10px] sm:tracking-[0.13em]">Access model</p>
@@ -3462,15 +5055,37 @@ const UsersAdmin = () => {
 
             {inviteOpen && (
                 <form onSubmit={handleCreateStaffUser} className={`${box} mb-7 overflow-hidden`} aria-labelledby="invite-team-title">
-                    <div className="border-b border-[#e5e2da] px-5 py-5 sm:px-6">
-                        <h2 id="invite-team-title" className="text-lg font-bold text-[#252925]">Invite a team member</h2>
-                        <p className="mt-1 text-xs leading-5 text-[#747971]">We create the account now and show its temporary password once.</p>
+                    <div className="flex flex-col gap-4 border-b border-[#e5e2da] px-5 py-5 sm:px-6 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            <h2 id="invite-team-title" className="text-lg font-bold text-[#252925]">Invite a team member</h2>
+                            <p className="mt-1 max-w-xl text-xs leading-5 text-[#747971]">
+                                {inviteMode === 'new'
+                                    ? 'We create the account now and show its temporary password once.'
+                                    : 'Give staff access to an account that already exists. They keep their password; a customer account becomes staff-only.'}
+                            </p>
+                        </div>
+                        <div className="inline-flex shrink-0 rounded-xl border border-[#dedbd2] bg-[#f8f7f3] p-1" role="radiogroup" aria-label="Account type">
+                            {([['new', 'New account'], ['existing', 'Existing account']] as const).map(([mode, label]) => (
+                                <button
+                                    key={mode}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={inviteMode === mode}
+                                    onClick={() => setInviteMode(mode)}
+                                    className={`min-h-10 rounded-lg px-3 text-xs font-semibold ${inviteMode === mode ? 'bg-white text-[#252925] shadow-sm' : 'text-[#6b7069] hover:text-[#252925]'}`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                    <div className="grid gap-5 p-5 sm:grid-cols-2 sm:p-6 xl:grid-cols-[1fr_1fr_1.2fr_auto] xl:items-end">
-                        <label className="block">
-                            <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">Full name <span className="font-normal text-[#8b8f89]">(optional)</span></span>
-                            <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Sana Khan" className={inputStyle} />
-                        </label>
+                    <div className={`grid gap-5 p-5 sm:grid-cols-2 sm:p-6 xl:items-end ${inviteMode === 'new' ? 'xl:grid-cols-[1fr_1fr_1.2fr_auto]' : 'xl:grid-cols-[1.4fr_1.2fr_auto]'}`}>
+                        {inviteMode === 'new' && (
+                            <label className="block">
+                                <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">Full name <span className="font-normal text-[#8b8f89]">(optional)</span></span>
+                                <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Sana Khan" className={inputStyle} />
+                            </label>
+                        )}
                         <label className="block">
                             <span className="mb-1.5 block text-xs font-semibold text-[#555b54]">Work email</span>
                             <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sana@example.com" className={inputStyle} required />
@@ -3482,7 +5097,7 @@ const UsersAdmin = () => {
                             </select>
                         </label>
                         <button disabled={saving} className="button-primary h-12 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50">
-                            {saving ? 'Creating…' : 'Create account'}
+                            {inviteMode === 'existing' ? (saving ? 'Granting…' : 'Grant access') : saving ? 'Creating…' : 'Create account'}
                         </button>
                     </div>
                 </form>
@@ -3574,6 +5189,9 @@ const UsersAdmin = () => {
                                             <div className="min-w-0">
                                                 <p className="truncate text-sm font-semibold text-[#303530]">{user.fullName || 'Unnamed staff member'}</p>
                                                 {user.id === session?.user?.id && <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#9b671d]">You</p>}
+                                                {user.suspended && (
+                                                    <span className="mt-1 inline-flex rounded-md border border-[#e3b8a9] bg-[#fff4f0] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#a44c36]">Suspended</span>
+                                                )}
                                             </div>
                                         </div>
                                         <p className="break-all text-xs text-[#626861]"><span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#969a94] lg:hidden">Email</span>{user.email}</p>
@@ -3592,6 +5210,10 @@ const UsersAdmin = () => {
                                             currentUserId={session?.user?.id}
                                             onCancel={() => setEditingUserId(null)}
                                             onError={setError}
+                                            onAccountChanged={async (message) => {
+                                                setSuccessMsg(message);
+                                                await load();
+                                            }}
                                             onSaved={async (success) => {
                                                 await load();
                                                 if (success) {
@@ -3619,40 +5241,86 @@ const UsersAdmin = () => {
 // ----------------------------------------------------
 // MAIN ROUTER CONTAINER
 // ----------------------------------------------------
+const AdminStatusScreen = ({ children }: { children: React.ReactNode }) => (
+    <div className="grid min-h-screen place-items-center bg-[#f5f3ed] px-6 text-[#343934]">{children}</div>
+);
+
+/** The backend could not be reached to check the session: the person may well still be signed in. */
+const AdminSessionUnavailable = ({ message, onRetry }: { message: string; onRetry: () => Promise<void> }) => {
+    const [retrying, setRetrying] = useState(false);
+    const retry = async () => {
+        setRetrying(true);
+        try {
+            await onRetry();
+        } finally {
+            setRetrying(false);
+        }
+    };
+
+    useEffect(() => {
+        // Keep trying quietly while the backend starts up.
+        const timer = window.setInterval(() => void onRetry(), 15_000);
+        return () => window.clearInterval(timer);
+    }, [onRetry]);
+
+    return (
+        <AdminStatusScreen>
+            <div className="max-w-md text-center" role="alert">
+                <span className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl border border-[#ddd8cd] bg-white text-[#9b671d]"><IconAlert size={22} /></span>
+                <h1 className="text-xl font-bold text-[#252925]">We can’t reach the store service</h1>
+                <p className="mt-2 text-sm leading-6 text-[#6b7069]">{message} You have not been signed out; we will keep retrying.</p>
+                <button type="button" onClick={() => void retry()} disabled={retrying} className="button-primary mt-5 gap-2 disabled:opacity-60">
+                    <IconRefresh size={15} className={retrying ? 'animate-spin' : ''} /> {retrying ? 'Retrying…' : 'Retry now'}
+                </button>
+            </div>
+        </AdminStatusScreen>
+    );
+};
+
+const AdminNotFound = ({ homePath }: { homePath: string }) => (
+    <AdminShell title="Page not found" description="This admin page does not exist or has moved.">
+        <div className={`${box} flex flex-col items-center gap-4 p-10 text-center`}>
+            <p className="text-sm text-[#6b7069]">Check the address, or pick a section from the navigation.</p>
+            <Link to={homePath} className="button-primary">Go to your workspace</Link>
+        </div>
+    </AdminShell>
+);
+
 const AdminPage = () => {
-    const { signedIn, isInitializing, session } = useAuth();
-    const path = useLocation().pathname;
+    const { signedIn, isInitializing, session, sessionError, retrySession } = useAuth();
+    const { pathname: path, search } = useLocation();
 
     if (isInitializing) {
         return (
-            <div className="grid min-h-screen place-items-center bg-[#f5f3ed] text-[#343934]" role="status">
-                <div className="flex items-center gap-3 text-sm font-semibold">
+            <AdminStatusScreen>
+                <div className="flex items-center gap-3 text-sm font-semibold" role="status">
                     <span className="size-2 animate-pulse rounded-full bg-[#d3912e]" /> Preparing your workspace…
                 </div>
-            </div>
+            </AdminStatusScreen>
         );
     }
-    if (!signedIn) return <Redirect to={`/admin/login?next=${encodeURIComponent(path)}`} />;
+    if (!signedIn && sessionError) return <AdminSessionUnavailable message={sessionError} onRetry={retrySession} />;
+    if (!signedIn) {
+        const next = encodeURIComponent(`${path}${search}`);
+        return <Redirect to={`/admin/login?next=${next}${sessionHasExpired() ? '&reason=expired' : ''}`} />;
+    }
     const roles = session?.roles || [];
-    const allowed = (...required: AppRole[]) => required.some((role) => roles.includes(role));
-    if (!allowed('ADMIN', 'CATALOGUE_MANAGER', 'WAREHOUSE_MANAGER', 'SUPPORT_AGENT')) return <Redirect to="/account" />;
-    const defaultPath = allowed('ADMIN') ? '/admin' : allowed('CATALOGUE_MANAGER') ? '/admin/catalogue' : '/admin/orders';
+    const homePath = defaultAdminPath(roles);
+    if (!homePath) return <Redirect to="/account" />;
+    const entry = matchAdminSection(path);
+    if (!entry) return <AdminNotFound homePath={homePath} />;
+    if (!entry.roles.some((role) => roles.includes(role))) return <Redirect to={homePath} />;
 
-    if (path === '/admin' && !allowed('ADMIN')) return <Redirect to={defaultPath} />;
-    if (path.startsWith('/admin/orders') && !allowed('ADMIN', 'SUPPORT_AGENT', 'WAREHOUSE_MANAGER')) return <Redirect to={defaultPath} />;
-    if ((path.startsWith('/admin/catalogue') || path.startsWith('/admin/promotions')) && !allowed('ADMIN', 'CATALOGUE_MANAGER')) return <Redirect to={defaultPath} />;
-    if (path.startsWith('/admin/inventory') && !allowed('ADMIN', 'WAREHOUSE_MANAGER')) return <Redirect to={defaultPath} />;
-    if ((path.startsWith('/admin/users') || path.startsWith('/admin/audit-logs') || path.startsWith('/admin/operations')) && !allowed('ADMIN')) return <Redirect to={defaultPath} />;
-
-    if (path.startsWith('/admin/orders')) return <OrdersAdmin />;
-    if (path.startsWith('/admin/catalogue')) return <CatalogueAdmin />;
-    if (path.startsWith('/admin/inventory')) return <InventoryAdmin />;
-    if (path.startsWith('/admin/promotions')) return <PromotionsAdmin />;
-    if (path.startsWith('/admin/users')) return <UsersAdmin />;
-    if (path.startsWith('/admin/audit-logs')) return <AuditLogsAdmin />;
-    if (path.startsWith('/admin/operations')) return <OperationsAdmin />;
-
-    return <Overview />;
+    switch (entry.section) {
+        case 'orders': return <OrdersAdmin />;
+        case 'catalogue': return <CatalogueAdmin />;
+        case 'inventory': return <InventoryAdmin />;
+        case 'promotions': return <PromotionsAdmin />;
+        case 'users': return <UsersAdmin />;
+        case 'audit-logs': return <AuditLogsAdmin />;
+        case 'operations': return <OperationsAdmin />;
+        default: return <Overview />;
+    }
 };
 
 export default AdminPage;

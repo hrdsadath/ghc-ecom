@@ -7,7 +7,7 @@ import { IconDownload, IconMapPin } from '../components/Icons';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { fallbackImage, rupees, shortDate, titleCase } from '../lib/commerce';
-import { openTrustedUrl } from '../lib/navigation';
+import { openTrustedUrlFrom } from '../lib/navigation';
 import { Order, Shipment } from '../types';
 
 const OrderDetailPage = () => {
@@ -31,8 +31,7 @@ const OrderDetailPage = () => {
 
     const download = async () => {
         try {
-            const result = await api.invoice(orderId);
-            if (!openTrustedUrl(result.url)) throw new Error('Invoice URL was rejected');
+            await openTrustedUrlFrom(() => api.invoice(orderId).then((result) => result.url));
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'Invoice is not ready.');
         }

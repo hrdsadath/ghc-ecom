@@ -8,27 +8,32 @@ import Pagination from '../components/Pagination';
 import ProductCard from '../components/ProductCard';
 import StoreFooter from '../components/StoreFooter';
 import { api } from '../lib/api';
-import { Category, Product } from '../types';
+import { positivePage, SEARCH_PAGE_SIZE, searchRequestParams } from '../lib/search-params';
+import { Category, PaginatedProducts, Product } from '../types';
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = SEARCH_PAGE_SIZE;
 
-const positivePage = (value: string | null) => {
-    const parsed = Number(value);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
-};
+interface SearchPageProps {
+    initialData?: PaginatedProducts;
+    /** `searchRequestParams(...).toString()` for the request that produced initialData. */
+    initialRequest?: string;
+    initialCategories?: Category[];
+}
 
-export const SearchPage = () => {
+export const SearchPage = ({ initialData, initialRequest, initialCategories }: SearchPageProps) => {
     const location = useLocation();
     const history = useHistory();
     const urlParams = new URLSearchParams(location.search);
     const query = urlParams.get('q')?.trim() || '';
     const selectedCategory = urlParams.get('category') || '';
     const currentPage = positivePage(urlParams.get('page'));
+    const requestKey = searchRequestParams(query, selectedCategory, currentPage).toString();
+    const hasMatchingInitialData = Boolean(initialData && initialRequest === requestKey);
     const [draftQuery, setDraftQuery] = useState(query);
-    const [products, setProducts] = useState<Product[]>([]);
-    const [categories, setCategories] = useState<Category[]>([]);
-    const [total, setTotal] = useState(0);
-    const [loading, setLoading] = useState(true);
+    const [products, setProducts] = useState<Product[]>(hasMatchingInitialData ? initialData!.items : []);
+    const [categories, setCategories] = useState<Category[]>(initialCategories ?? []);
+    const [total, setTotal] = useState(hasMatchingInitialData ? initialData!.total : 0);
+    const [loading, setLoading] = useState(!hasMatchingInitialData);
     const [error, setError] = useState('');
     const [retryKey, setRetryKey] = useState(0);
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -36,6 +41,7 @@ export const SearchPage = () => {
     useEffect(() => setDraftQuery(query), [query]);
 
     useEffect(() => {
+        if (initialCategories !== undefined) return;
         const controller = new AbortController();
         api.categories()
             .then(setCategories)
@@ -43,16 +49,18 @@ export const SearchPage = () => {
                 if (!controller.signal.aborted) setCategories([]);
             });
         return () => controller.abort();
-    }, []);
+    }, [initialCategories]);
 
     useEffect(() => {
+        if (retryKey === 0 && initialData && initialRequest === requestKey) {
+            setProducts(initialData.items);
+            setTotal(initialData.total);
+            setLoading(false);
+            setError('');
+            return;
+        }
         const controller = new AbortController();
-        const params = new URLSearchParams({
-            page: String(currentPage),
-            limit: String(PAGE_SIZE),
-        });
-        if (query) params.set('q', query);
-        if (selectedCategory) params.set('category', selectedCategory);
+        const params = new URLSearchParams(requestKey);
         setLoading(true);
         setError('');
         api.products(params, controller.signal)
@@ -76,7 +84,7 @@ export const SearchPage = () => {
         return () => controller.abort();
         // location.search is the single source of truth for this request.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [query, selectedCategory, currentPage, retryKey]);
+    }, [requestKey, retryKey, initialData, initialRequest]);
 
     const updateUrl = (changes: Record<string, string>, replace = false) => {
         const params = new URLSearchParams(location.search);
@@ -113,6 +121,7 @@ export const SearchPage = () => {
                             id="catalogue-search"
                             name="q"
                             type="search"
+                            maxLength={100}
                             autoComplete="off"
                             value={draftQuery}
                             onChange={(event) => setDraftQuery(event.target.value)}

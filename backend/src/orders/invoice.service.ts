@@ -1,19 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { Invoice, Order, Prisma } from '@prisma/client';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { Invoice, Order, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { SupabaseService } from '../supabase/supabase.service';
+import { InvoiceAddress, InvoiceLine, renderInvoicePdf } from './invoice-pdf';
+import { storeDetails } from './store-details';
 
-interface InvoiceLine {
-  sku?: string;
-  productName?: string;
-  color?: string;
-  optionLabel?: string;
-  quantity?: number;
-  unitPricePaise?: number;
-  lineTotalPaise?: number;
-}
+const invoiceNumber = (order: Pick<Order, 'orderNumber'>): string => `INV-${order.orderNumber}`;
 
 @Injectable()
 export class InvoiceService {
@@ -28,7 +21,7 @@ export class InvoiceService {
       return existing;
     }
     const pdf = await this.generate(order);
-    const number = `INV-${order.orderNumber}`;
+    const number = invoiceNumber(order);
     const storagePath = `invoices/${order.id}/${randomUUID()}.pdf`;
     await this.supabase.uploadPrivateDocument(storagePath, pdf, 'application/pdf');
     try {
@@ -56,67 +49,35 @@ export class InvoiceService {
   }
 
   private async generate(order: Order): Promise<Buffer> {
-    const document = await PDFDocument.create();
-    const page = document.addPage([595, 842]);
-    const regular = await document.embedFont(StandardFonts.Helvetica);
-    const bold = await document.embedFont(StandardFonts.HelveticaBold);
-    const lines = this.lines(order.itemsSnapshot);
-    let y = 790;
-    page.drawText('GHC Ecommerce Invoice', {
-      x: 48,
-      y,
-      size: 20,
-      font: bold,
-      color: rgb(0.08, 0.18, 0.14),
+    const payment = await this.prisma.payment.findFirst({
+      where: {
+        orderId: order.id,
+        status: { in: [PaymentStatus.CAPTURED, PaymentStatus.REFUNDED] },
+      },
+      select: { method: true, status: true },
+      orderBy: { createdAt: 'asc' },
     });
-    y -= 34;
-    page.drawText(`Invoice: INV-${order.orderNumber}`, { x: 48, y, size: 10, font: regular });
-    y -= 16;
-    page.drawText(`Order: ${order.orderNumber}`, { x: 48, y, size: 10, font: regular });
-    y -= 28;
-    page.drawText('Items', { x: 48, y, size: 13, font: bold });
-    y -= 22;
-    for (const line of lines) {
-      const optionLabel = line.optionLabel ?? line.color;
-      const name = `${line.productName ?? 'Product'}${optionLabel ? ` — ${optionLabel}` : ''}`;
-      const quantity = line.quantity ?? 0;
-      const total = line.lineTotalPaise ?? (line.unitPricePaise ?? 0) * quantity;
-      page.drawText(name.slice(0, 65), { x: 48, y, size: 9, font: regular });
-      page.drawText(`${quantity} × ${this.money(line.unitPricePaise ?? 0)}`, {
-        x: 330,
-        y,
-        size: 9,
-        font: regular,
-      });
-      page.drawText(this.money(total), { x: 490, y, size: 9, font: regular });
-      y -= 18;
-    }
-    y -= 12;
-    const totals = [
-      ['Subtotal', order.subtotalPaise],
-      ['Discount', -order.discountPaise],
-      ['Shipping', order.shippingPaise],
-      ['GST', order.taxPaise],
-      ['Total', order.totalPaise],
-    ] as const;
-    for (const [label, amount] of totals) {
-      page.drawText(label, { x: 380, y, size: 10, font: label === 'Total' ? bold : regular });
-      page.drawText(this.money(amount), {
-        x: 490,
-        y,
-        size: 10,
-        font: label === 'Total' ? bold : regular,
-      });
-      y -= 17;
-    }
-    return Buffer.from(await document.save());
+    const pdf = await renderInvoicePdf({
+      invoiceNumber: invoiceNumber(order),
+      invoiceDate: new Date(),
+      orderNumber: order.orderNumber,
+      orderDate: order.createdAt ?? order.confirmedAt,
+      address: this.address(order.addressSnapshot),
+      lines: Array.isArray(order.itemsSnapshot) ? (order.itemsSnapshot as InvoiceLine[]) : [],
+      subtotalPaise: order.subtotalPaise,
+      discountPaise: order.discountPaise,
+      shippingPaise: order.shippingPaise,
+      taxPaise: order.taxPaise,
+      totalPaise: order.totalPaise,
+      payment,
+      store: storeDetails(),
+    });
+    return Buffer.from(pdf);
   }
 
-  private lines(value: Prisma.JsonValue): InvoiceLine[] {
-    return Array.isArray(value) ? (value as InvoiceLine[]) : [];
-  }
-
-  private money(paise: number): string {
-    return `INR ${(paise / 100).toFixed(2)}`;
+  private address(value: Prisma.JsonValue): InvoiceAddress {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as InvoiceAddress)
+      : {};
   }
 }

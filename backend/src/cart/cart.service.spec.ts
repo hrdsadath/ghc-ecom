@@ -136,35 +136,32 @@ describe('CartService', () => {
     expect(result.cart.id).toBe('new-cart');
   });
 
-  it('sets a guest cart item with only a mutation and a joined cart read', async () => {
+  it('sets a guest cart item and returns the updated bag from the same statement', async () => {
     const expiresAt = new Date('2026-09-01T00:00:00.000Z');
     const prisma = {
-      $queryRaw: jest
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            cartFound: true,
-            variantFound: true,
-            paymentPending: false,
-            availableStock: 8,
-            itemChanged: true,
-          },
-        ])
-        .mockResolvedValueOnce([
-          {
-            cartId: 'c3fd0b35-6f59-4d7b-be52-4b278bd0895c',
-            status: 'active',
-            expiresAt,
-            itemId: 'item-id',
-            variantId: 'd54f0e2c-51d8-4c25-98bd-1d84735cc937',
-            sku: 'SKU-1',
-            productName: 'Stored Product',
-            color: 'Gold',
-            imageUrl: null,
-            quantity: 2,
-            unitPricePaise: 12_500,
-          },
-        ]),
+      $queryRaw: jest.fn().mockResolvedValueOnce([
+        {
+          cartFound: true,
+          variantFound: true,
+          paymentPending: false,
+          availableStock: 8,
+          itemChanged: true,
+          status: 'ACTIVE',
+          expiresAt,
+          items: [
+            {
+              itemId: 'item-id',
+              variantId: 'd54f0e2c-51d8-4c25-98bd-1d84735cc937',
+              sku: 'SKU-1',
+              productName: 'Stored Product',
+              color: 'Gold',
+              imageUrl: null,
+              quantity: 2,
+              unitPricePaise: 12_500,
+            },
+          ],
+        },
+      ]),
     };
     const service = new CartService(prisma as never, {} as never);
 
@@ -175,30 +172,28 @@ describe('CartService', () => {
         undefined,
         'guest-token',
       ),
-    ).resolves.toMatchObject({ subtotalPaise: 25_000 });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    ).resolves.toMatchObject({
+      id: 'c3fd0b35-6f59-4d7b-be52-4b278bd0895c',
+      expiresAt,
+      items: [{ id: 'item-id', optionLabel: 'Gold', lineTotalPaise: 25_000 }],
+      subtotalPaise: 25_000,
+    });
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 
-  it('removes a guest cart item with only a mutation and a joined cart read', async () => {
+  it('removes a guest cart item and returns the updated bag from the same statement', async () => {
     const prisma = {
-      $queryRaw: jest
-        .fn()
-        .mockResolvedValueOnce([{ cartFound: true, paymentPending: false, itemRemoved: true }])
-        .mockResolvedValueOnce([
-          {
-            cartId: 'c3fd0b35-6f59-4d7b-be52-4b278bd0895c',
-            status: 'ACTIVE',
-            expiresAt: new Date('2026-09-01T00:00:00.000Z'),
-            itemId: null,
-            variantId: null,
-            sku: null,
-            productName: null,
-            color: null,
-            imageUrl: null,
-            quantity: null,
-            unitPricePaise: null,
-          },
-        ]),
+      $queryRaw: jest.fn().mockResolvedValueOnce([
+        {
+          cartFound: true,
+          paymentPending: false,
+          itemRemoved: true,
+          status: 'ACTIVE',
+          expiresAt: new Date('2026-09-01T00:00:00.000Z'),
+          // json_agg over no rows is null.
+          items: null,
+        },
+      ]),
     };
     const service = new CartService(prisma as never, {} as never);
 
@@ -210,6 +205,6 @@ describe('CartService', () => {
         'guest-token',
       ),
     ).resolves.toMatchObject({ items: [], subtotalPaise: 0 });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });

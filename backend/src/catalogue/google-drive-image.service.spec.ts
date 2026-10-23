@@ -39,7 +39,7 @@ describe('Google Drive image import', () => {
     );
 
     expect(result).toMatchObject({
-      originalname: 'catalogue.png',
+      originalname: `google-drive-${fileId}--catalogue.png`,
       mimetype: 'image/png',
       size: bytes.length,
       buffer: bytes,

@@ -1,4 +1,4 @@
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { AppRole } from '@prisma/client';
 import { RolesGuard } from './roles.guard';
 
@@ -16,12 +16,12 @@ describe('RolesGuard', () => {
       getAllAndOverride: jest.fn().mockReturnValue([AppRole.ADMIN]),
     };
     const auth = {
-      roles: jest.fn().mockResolvedValue([AppRole.CUSTOMER]),
+      access: jest.fn().mockResolvedValue({ roles: [AppRole.CUSTOMER], suspended: false }),
     };
     const guard = new RolesGuard(reflector as never, auth as never);
 
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
-    expect(auth.roles).toHaveBeenCalledWith('customer-id');
+    expect(auth.access).toHaveBeenCalledWith('customer-id');
   });
 
   it('allows a user with a required role', async () => {
@@ -29,7 +29,7 @@ describe('RolesGuard', () => {
       getAllAndOverride: jest.fn().mockReturnValue([AppRole.ADMIN]),
     };
     const auth = {
-      roles: jest.fn().mockResolvedValue([AppRole.ADMIN]),
+      access: jest.fn().mockResolvedValue({ roles: [AppRole.ADMIN], suspended: false }),
     };
     const adminContext = {
       ...context,
@@ -40,5 +40,17 @@ describe('RolesGuard', () => {
     const guard = new RolesGuard(reflector as never, auth as never);
 
     await expect(guard.canActivate(adminContext)).resolves.toBe(true);
+  });
+
+  it('rejects a suspended account even while its access token is valid', async () => {
+    const reflector = {
+      getAllAndOverride: jest.fn().mockReturnValue([AppRole.ADMIN]),
+    };
+    const auth = {
+      access: jest.fn().mockResolvedValue({ roles: [AppRole.ADMIN], suspended: true }),
+    };
+    const guard = new RolesGuard(reflector as never, auth as never);
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

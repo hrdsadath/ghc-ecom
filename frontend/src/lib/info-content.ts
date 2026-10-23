@@ -1,8 +1,13 @@
 export type InfoPageKind = 'about' | 'shipping' | 'faq' | 'contact' | 'privacy' | 'terms';
 
+export const COMPANY_NAME = 'IQSA Connect LLP';
+
 interface SectionItem {
     title: string;
     body: string;
+    list?: { ordered?: boolean; items: string[] };
+    table?: { headers: string[]; rows: string[][] };
+    note?: string;
 }
 
 export const pageContent: Record<
@@ -42,27 +47,68 @@ export const pageContent: Record<
         ],
     },
     shipping: {
-        eyebrow: 'Order information',
-        title: 'Order and return help from Glockery.',
-        metaTitle: 'Order & Return Information | Glockery Home Centre Vengara',
-        metaDesc: 'Read order and return-help information for Glockery Home Centre, Vengara.',
-        intro: 'Use this page for help with an order, a product enquiry, or a return request.',
+        eyebrow: 'Delivery information',
+        title: 'Shipping Policy',
+        metaTitle: 'Shipping Policy | Glockery Home Centre',
+        metaDesc: 'Order processing times, delivery timelines, transit damage and order tracking for Glockery Home Centre, operated by IQSA Connect LLP.',
+        intro: `At Glockery Home Centre, operated by ${COMPANY_NAME}, we take extra care in packaging every order, especially delicate ceramics and cookware, to ensure your products reach you safely and securely.`,
         sections: [
             {
-                title: 'Before you order',
-                body: 'Send us the product name or photo on WhatsApp. We will help confirm current stock and product details.',
+                title: '1. Order Processing Time',
+                body: '',
+                list: {
+                    items: [
+                        'All orders are processed within 1 to 2 business days.',
+                        'Orders placed after 09:00 AM will be processed on the following business day.',
+                        'Once your order is dispatched, you will receive a confirmation message with a tracking link.',
+                    ],
+                },
             },
             {
-                title: 'Order updates',
-                body: 'For help with an existing order, contact 8138 003 232 or WhatsApp 6282 000 289 with your order number.',
+                title: '2. Shipping Charges & Delivery Timelines',
+                body: 'Delivery times may vary slightly for remote or rural locations.',
+                table: {
+                    headers: ['Delivery Option', 'Estimated Delivery Time', 'Shipping Cost'],
+                    rows: [['Standard Shipping', '3 to 7 Business Days', 'Calculated at checkout']],
+                },
             },
             {
-                title: 'Shop in person',
-                body: 'You can browse the collections at Glockery Home Centre, near ICICI Bank in Vengara, Malappuram.',
+                title: '3. Transit Damage & Broken Items Policy (Ceramics & Delicate Goods)',
+                body: 'We double-layer wrap all fragile ceramic items using sturdy boxes and cushioning. In the rare event that an item arrives broken or damaged during transit:',
+                list: {
+                    ordered: true,
+                    items: [
+                        'Report Period: Please notify us within 24 to 48 hours of package delivery.',
+                        'Proof Required: An unboxing video recorded while opening the package.',
+                        'Resolution: Upon verification, we will send a free replacement or issue a full refund / store credit immediately.',
+                    ],
+                },
+                note: 'If the outer parcel appears severely tampered with or crushed upon delivery, please refuse the package from the courier and inform our customer support team right away.',
             },
             {
-                title: 'Returns or damaged items',
-                body: 'Please confirm the current return terms before ordering. If an item arrives damaged, contact us promptly with the order details and clear photos of the item and packaging.',
+                title: '4. Order Tracking',
+                body: "Once your package is shipped, tracking details will be sent via Email / SMS / WhatsApp. You can track your shipment anytime using the provided tracking code on the courier's portal.",
+            },
+            {
+                title: '5. Incorrect Address & Failed Deliveries',
+                body: '',
+                list: {
+                    items: [
+                        'Please verify your address and mobile number carefully at checkout.',
+                        'If a package is returned to us due to an incorrect address, missing phone number, or repeated failed delivery attempts, additional re-shipping charges may apply to dispatch the order again.',
+                    ],
+                },
+            },
+            {
+                title: '6. Customer Support',
+                body: 'If you have any questions or concerns about your delivery, feel free to reach out to us:',
+                list: {
+                    items: [
+                        'Email: iqsaconnectllp@gmail.com',
+                        'Phone / WhatsApp: +91 6282 000 289',
+                        'Support Hours: Monday to Saturday | 9:00 AM – 6:00 PM',
+                    ],
+                },
             },
         ],
     },
@@ -140,9 +186,13 @@ export const pageContent: Record<
         eyebrow: 'Website information',
         title: 'Privacy policy',
         metaTitle: 'Privacy Policy | Glockery Home Centre',
-        metaDesc: 'How Glockery Home Centre uses information supplied through customer accounts and online orders.',
-        intro: 'This website uses the information you provide to manage your account and process orders.',
+        metaDesc: 'How Glockery Home Centre, operated by IQSA Connect LLP, uses information supplied through customer accounts and online orders.',
+        intro: `Glockery Home Centre is operated by ${COMPANY_NAME}. This website uses the information you provide to manage your account and process orders.`,
         sections: [
+            {
+                title: 'Who We Are',
+                body: `This website and online store are operated by ${COMPANY_NAME}, trading as Glockery Home Centre, Vengara, Malappuram, Kerala 676304. References to "we", "us" or "Glockery" in this policy mean ${COMPANY_NAME}.`,
+            },
             {
                 title: 'Information We Collect',
                 body: 'The website collects details such as your name, contact address, email address and phone number when needed for accounts and orders.',
@@ -153,7 +203,7 @@ export const pageContent: Record<
             },
             {
                 title: 'Service providers',
-                body: 'Order information may be shared with the services needed to complete payment. Contact the shop if you have a question about your information.',
+                body: `Order information may be shared with the services needed to complete payment and delivery. Contact ${COMPANY_NAME} at iqsaconnectllp@gmail.com if you have a question about your information.`,
             },
         ],
     },
@@ -161,9 +211,13 @@ export const pageContent: Record<
         eyebrow: 'Online orders',
         title: 'Terms and conditions',
         metaTitle: 'Terms & Conditions | Glockery Home Centre',
-        metaDesc: 'Review terms of service, payment policies, pricing transparency, and order terms for Glockery Home Centre.',
-        intro: 'Important information about product availability, pricing and online orders.',
+        metaDesc: 'Review terms of service, payment policies, pricing transparency, and order terms for Glockery Home Centre, operated by IQSA Connect LLP.',
+        intro: `Glockery Home Centre is operated by ${COMPANY_NAME}. These terms cover product availability, pricing and online orders placed on this website.`,
         sections: [
+            {
+                title: 'About These Terms',
+                body: `This website and online store are operated by ${COMPANY_NAME}, trading as Glockery Home Centre, Vengara, Malappuram, Kerala 676304. By placing an order on this website you enter into a contract of sale with ${COMPANY_NAME}.`,
+            },
             {
                 title: 'Order Acceptance & Availability',
                 body: 'An online order is accepted after payment is verified and the product is confirmed as available. If an ordered product is unavailable, the shop will contact you about the available resolution.',
