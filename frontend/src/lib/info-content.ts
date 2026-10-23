@@ -25,9 +25,13 @@ export const pageContent: Record<
         eyebrow: 'Vengara, Malappuram',
         title: 'Crockery and kitchenware for every home.',
         metaTitle: 'About Glockery Home Centre Vengara',
-        metaDesc: 'Visit Glockery Home Centre near ICICI Bank in Vengara, Malappuram for crockery, kitchenware and home essentials.',
-        intro: 'Glockery Home Centre is a crockery and kitchenware shop in Vengara, Malappuram. Shop in store or contact us for product and order support.',
+        metaDesc: 'Visit Glockery Home Centre, operated by IQSA Connect LLP, near ICICI Bank in Vengara, Malappuram for crockery, kitchenware and home essentials.',
+        intro: `Glockery Home Centre is a crockery and kitchenware shop in Vengara, Malappuram, operated by ${COMPANY_NAME}. Shop in store or contact us for product and order support.`,
         sections: [
+            {
+                title: 'Our company',
+                body: `Glockery Home Centre and this online store are owned and operated by ${COMPANY_NAME}. For business enquiries, email iqsaconnectllp@gmail.com.`,
+            },
             {
                 title: 'Visit our Vengara store',
                 body: 'Find us at Home Centre, near ICICI Bank, Vengara, Malappuram, Kerala 676304.',
