@@ -1138,16 +1138,17 @@ describe('black and gold commerce UI', () => {
             });
         };
 
-        // Cancelling the shipment form never creates a shipment.
+        // Cancelling the mark-shipped form never ships the order.
         await click('View');
-        await click('Create shipment');
-        expect(document.body.textContent).toContain('Carrier (optional)');
+        await click('Mark shipped');
+        expect(document.body.textContent).toContain('Shipping provider');
+        expect(document.body.textContent).toContain('Tracking number');
         await click('Cancel');
-        expect(ordersFetch.mock.calls.some(([request, init]) => String(request).includes('/shipments') && init?.method === 'POST')).toBe(false);
+        expect(ordersFetch.mock.calls.some(([request, init]) => String(request).includes('/mark-shipped') && init?.method === 'POST')).toBe(false);
         act(() => mountedRoot?.unmount());
         document.body.innerHTML = '';
 
-        // A support agent changes no fulfilment state: no shipment, tracking, processing or cancel actions.
+        // A support agent changes no fulfilment state: no shipping, processing or cancel actions.
         const hasButton = (label: string) => Array.from(document.body.querySelectorAll('button')).some((item) => item.textContent?.trim() === label);
         detail = adminOrder([
             { id: 'ship-1', orderId: detail.id, provider: 'manual', status: 'CREATED', createdAt: '', updatedAt: '', events: [], items: [] },
@@ -1156,7 +1157,7 @@ describe('black and gold commerce UI', () => {
         await render(<AdminPage />, '/admin/orders');
         await click('View');
         expect(document.body.textContent).toContain('GHC-ORDER-1');
-        for (const label of ['Create shipment', 'Add tracking update', 'Cancel order']) expect(hasButton(label), label).toBe(false);
+        for (const label of ['Mark shipped', 'Cancel order']) expect(hasButton(label), label).toBe(false);
         act(() => mountedRoot?.unmount());
         document.body.innerHTML = '';
 
@@ -1167,7 +1168,7 @@ describe('black and gold commerce UI', () => {
         act(() => mountedRoot?.unmount());
         document.body.innerHTML = '';
 
-        // A warehouse manager tracks shipments, offered only the allowed next states, but cannot cancel.
+        // A warehouse manager can mark the order shipped but cannot cancel it, and tracking is no longer entered by hand.
         detail = adminOrder([
             { id: 'ship-1', orderId: detail.id, provider: 'manual', status: 'CREATED', createdAt: '', updatedAt: '', events: [], items: [] },
         ]);
@@ -1175,9 +1176,8 @@ describe('black and gold commerce UI', () => {
         await render(<AdminPage />, '/admin/orders');
         await click('View');
         expect(hasButton('Cancel order')).toBe(false);
-        await click('Add tracking update');
-        const options = Array.from(document.body.querySelectorAll('select option')).map((option) => option.textContent);
-        expect(options).toEqual(['Label Created', 'In Transit', 'Cancelled']);
+        expect(hasButton('Add tracking update')).toBe(false);
+        expect(hasButton('Mark shipped')).toBe(true);
     });
 
     it('lets an admin cancel a paid order with a reason after confirming the refund', async () => {

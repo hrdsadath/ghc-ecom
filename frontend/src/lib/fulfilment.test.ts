@@ -2,23 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
     canAdminCancelOrder,
     cancellationRefundPaise,
-    nextShipmentStatuses,
     paiseToRupeesInput,
     parseRupeesToPaise,
     refundablePaise,
     returnRefundKey,
 } from './fulfilment';
 import type { Order } from '../types';
-
-describe('nextShipmentStatuses', () => {
-    it('offers only the transitions the database accepts', () => {
-        expect(nextShipmentStatuses('CREATED')).toEqual(['LABEL_CREATED', 'IN_TRANSIT', 'CANCELLED']);
-        expect(nextShipmentStatuses('IN_TRANSIT')).toEqual(['OUT_FOR_DELIVERY', 'DELIVERED', 'EXCEPTION']);
-        expect(nextShipmentStatuses('DELIVERED')).toEqual([]);
-        expect(nextShipmentStatuses('CANCELLED')).toEqual([]);
-        expect(Object.values({ a: nextShipmentStatuses('CREATED') }).flat()).not.toContain('PICKED_UP');
-    });
-});
 
 describe('parseRupeesToPaise', () => {
     it.each([

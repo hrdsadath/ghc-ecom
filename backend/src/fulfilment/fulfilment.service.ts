@@ -21,8 +21,8 @@ import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
+import { MarkShippedDto } from './dto/mark-shipped.dto';
 import { ReviewReturnDto } from './dto/review-return.dto';
-import { TrackingEventDto } from './dto/tracking-event.dto';
 import { ShippingProviderService } from './shipping-provider.service';
 
 const shipmentInclude = {
@@ -98,30 +98,74 @@ export class FulfilmentService {
     });
   }
 
-  async addTrackingEvent(
-    actorId: string,
-    shipmentId: string,
-    input: TrackingEventDto,
-  ): Promise<Shipment> {
-    const target = input.status.toLowerCase();
-    try {
-      await this.prisma.$executeRaw`select public.advance_shipment_status(
-        ${shipmentId}::uuid,
-        ${input.providerEventId},
-        ${target}::public.shipment_status,
-        ${input.message ?? null},
-        ${input.location ?? null},
-        ${new Date(input.occurredAt)}::timestamptz
-      )`;
-    } catch {
-      throw new BadRequestException('Shipment state transition is not allowed');
-    }
+  /**
+   * Marks a processing order shipped with the provider name and tracking number staff
+   * enter. The shipment is created (or the unshipped one updated), then
+   * `advance_shipment_status` moves it in transit and the order to shipped in the same
+   * transaction, which queues the `order.shipped` email with those details.
+   */
+  async markShipped(actorId: string, orderId: string, input: MarkShippedDto): Promise<Shipment> {
+    const shipmentId = await this.prisma.$transaction(async (transaction) => {
+      // The row lock serialises a mark-shipped with a concurrent cancellation of the same order.
+      const [row] = await transaction.$queryRaw<Array<{ status: string }>>`
+        select status::text as status from public.orders where id = ${orderId}::uuid for update`;
+      if (!row) throw new NotFoundException('Order not found');
+      if (row.status !== 'processing') {
+        throw new BadRequestException('Only processing orders can be marked shipped');
+      }
+      const order = await transaction.order.findUnique({ where: { id: orderId } });
+      if (!order) throw new NotFoundException('Order not found');
+      const live = await transaction.shipment.findFirst({
+        where: { orderId, status: { in: [ShipmentStatus.CREATED, ShipmentStatus.LABEL_CREATED] } },
+        orderBy: { createdAt: 'desc' },
+      });
+      let id: string;
+      try {
+        if (live) {
+          await transaction.shipment.update({
+            where: { id: live.id },
+            data: { provider: input.provider, trackingNumber: input.trackingNumber },
+          });
+          id = live.id;
+        } else {
+          const created = await transaction.shipment.create({
+            data: {
+              orderId,
+              provider: input.provider,
+              trackingNumber: input.trackingNumber,
+              addressSnapshot: this.json(order.addressSnapshot),
+              items: { create: this.provider.items(order.itemsSnapshot) },
+            },
+          });
+          id = created.id;
+        }
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException('That tracking number is already used on another shipment');
+        }
+        throw error;
+      }
+      const target = ShipmentStatus.IN_TRANSIT.toLowerCase();
+      try {
+        await transaction.$executeRaw`select public.advance_shipment_status(
+          ${id}::uuid,
+          ${`mark-shipped:${id}`},
+          ${target}::public.shipment_status,
+          ${'Marked shipped by staff'},
+          ${null},
+          ${new Date()}::timestamptz
+        )`;
+      } catch {
+        throw new BadRequestException('Order could not be marked shipped');
+      }
+      return id;
+    });
     await this.audit.record({
       actorId,
-      action: 'shipment.status_changed',
+      action: 'order.marked_shipped',
       entityType: 'shipment',
       entityId: shipmentId,
-      metadata: { status: input.status, providerEventId: input.providerEventId },
+      metadata: { orderId, provider: input.provider },
     });
     return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
   }
@@ -131,15 +175,21 @@ export class FulfilmentService {
     orderId: string,
     input: CreateReturnDto,
   ): Promise<ReturnRequest> {
+    // Staff no longer record delivery, so the window runs from delivery when known, else dispatch.
     const shipment = await this.prisma.shipment.findFirst({
-      where: { orderId, order: { userId }, status: ShipmentStatus.DELIVERED },
-      orderBy: { deliveredAt: 'desc' },
+      where: {
+        orderId,
+        order: { userId },
+        status: {
+          in: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.OUT_FOR_DELIVERY, ShipmentStatus.DELIVERED],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     });
-    if (!shipment?.deliveredAt) throw new BadRequestException('Order has not been delivered');
+    const windowStart = shipment?.deliveredAt ?? shipment?.shippedAt;
+    if (!windowStart) throw new BadRequestException('Order has not been shipped');
     const returnWindowDays = this.config.getOrThrow<number>('RETURN_WINDOW_DAYS');
-    const eligibleUntil = new Date(
-      shipment.deliveredAt.getTime() + returnWindowDays * 24 * 60 * 60 * 1000,
-    );
+    const eligibleUntil = new Date(windowStart.getTime() + returnWindowDays * 24 * 60 * 60 * 1000);
     if (eligibleUntil <= new Date()) {
       throw new BadRequestException('Return eligibility window has expired');
     }

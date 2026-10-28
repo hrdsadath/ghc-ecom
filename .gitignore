@@ -23,3 +23,5 @@ artifacts/
 
 # Local HDFC SmartGateway test-kit credentials
 /config.json
+
+hdfc-security-audit

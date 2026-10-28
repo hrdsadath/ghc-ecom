@@ -19,8 +19,8 @@ import { SupabaseAuthGuard } from '../auth/guards/supabase-auth.guard';
 import { CreateRefundDto } from './dto/create-refund.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
+import { MarkShippedDto } from './dto/mark-shipped.dto';
 import { ReviewReturnDto } from './dto/review-return.dto';
-import { TrackingEventDto } from './dto/tracking-event.dto';
 import { FulfilmentService, ReviewedReturn, ShipmentDetail } from './fulfilment.service';
 import { RefundReconciliationResult, RefundsService } from './refunds.service';
 
@@ -61,16 +61,16 @@ export class FulfilmentController {
     return this.fulfilment.createShipment(actor.id, orderId, input);
   }
 
-  /** Tracking moves the order to shipped/delivered, so it is fulfilment work, not support. */
-  @Post('admin/shipments/:shipmentId/events')
+  /** Marking shipped moves the order and emails the customer, so it is fulfilment work, not support. */
+  @Post('admin/orders/:orderId/mark-shipped')
   @UseGuards(RolesGuard)
   @Roles(AppRole.ADMIN, AppRole.WAREHOUSE_MANAGER)
-  addTracking(
+  markShipped(
     @CurrentUser() actor: AuthenticatedUser,
-    @Param('shipmentId', ParseUUIDPipe) shipmentId: string,
-    @Body() input: TrackingEventDto,
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Body() input: MarkShippedDto,
   ): Promise<Shipment> {
-    return this.fulfilment.addTrackingEvent(actor.id, shipmentId, input);
+    return this.fulfilment.markShipped(actor.id, orderId, input);
   }
 
   @Patch('admin/returns/:returnId')

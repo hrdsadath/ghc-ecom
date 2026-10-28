@@ -83,7 +83,7 @@ const OrderDetailPage = () => {
                                 {['PAYMENT_PENDING', 'CONFIRMED'].includes(order.status) && (
                                     <button disabled={working} onClick={() => void cancel()} className="border border-red-500/40 px-4 py-2 text-xs font-bold uppercase text-red-200 disabled:opacity-50">Cancel order</button>
                                 )}
-                                {order.status === 'DELIVERED' && (
+                                {['SHIPPED', 'DELIVERED'].includes(order.status) && (
                                     <button disabled={working} onClick={() => void requestReturn()} className="border border-gold-500/40 px-4 py-2 text-xs font-bold uppercase text-gold-200 disabled:opacity-50">Request return</button>
                                 )}
                                 {shipments.map((shipment) => (

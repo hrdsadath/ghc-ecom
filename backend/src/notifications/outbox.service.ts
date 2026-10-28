@@ -6,14 +6,24 @@ import {
   OutboxEvent,
   OutboxStatus,
   Prisma,
+  ShipmentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RefundsService } from '../fulfilment/refunds.service';
 import { InvoiceService } from '../orders/invoice.service';
 import { NotificationMessage, NotificationSenderService } from './notification-sender.service';
-import { renderOrderEmail } from './order-email-template';
+import {
+  OrderEmailEvent,
+  renderOrderEmail,
+  ShipmentTracking,
+} from './order-email-template';
 
 const MAX_ATTEMPTS = 5;
+const NOTIFIED_ORDER_EVENTS: readonly OrderEmailEvent[] = [
+  'order.confirmed',
+  'order.shipped',
+  'order.cancelled',
+];
 const PROCESSING_LEASE_MS = 5 * 60 * 1000;
 
 interface AddressContact {
@@ -120,12 +130,23 @@ export class OutboxService {
     if (event.eventType === 'order.cancelled') {
       await this.refunds.refundOrderCancellation(order.id);
     }
-    if (!['order.confirmed', 'order.cancelled'].includes(event.eventType)) {
+    const emailEvent = NOTIFIED_ORDER_EVENTS.find((type) => type === event.eventType);
+    if (!emailEvent) {
       return;
     }
-    for (const message of this.messages(order, event.eventType)) {
+    const tracking =
+      emailEvent === 'order.shipped' ? await this.latestTracking(order.id) : undefined;
+    for (const message of this.messages(order, emailEvent, tracking)) {
       await this.deliver(event, order, message);
     }
+  }
+
+  private latestTracking(orderId: string): Promise<ShipmentTracking | null> {
+    return this.prisma.shipment.findFirst({
+      where: { orderId, status: { not: ShipmentStatus.CANCELLED } },
+      orderBy: { createdAt: 'desc' },
+      select: { provider: true, carrier: true, trackingNumber: true },
+    });
   }
 
   private async deliver(
@@ -181,13 +202,13 @@ export class OutboxService {
     }
   }
 
-  private messages(order: Order, eventType: string): NotificationMessage[] {
+  private messages(
+    order: Order,
+    event: OrderEmailEvent,
+    tracking?: ShipmentTracking | null,
+  ): NotificationMessage[] {
     const contact = this.contact(order.addressSnapshot);
-    const email = renderOrderEmail(
-      order,
-      eventType === 'order.confirmed' ? 'order.confirmed' : 'order.cancelled',
-      contact.recipientName,
-    );
+    const email = renderOrderEmail(order, event, contact.recipientName, tracking);
     const candidates: Array<[NotificationChannel, string | undefined]> = [
       [NotificationChannel.EMAIL, contact.email],
       [NotificationChannel.SMS, contact.phone],

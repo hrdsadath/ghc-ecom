@@ -1,21 +1,6 @@
 import type { Order, OrderPayment } from '../types';
 
 /**
- * Shipment states an admin may move to from each state. Mirrors
- * `public.advance_shipment_status` (migration 20260723230000), which rejects
- * every other transition.
- */
-const SHIPMENT_TRANSITIONS: Record<string, readonly string[]> = {
-    CREATED: ['LABEL_CREATED', 'IN_TRANSIT', 'CANCELLED'],
-    LABEL_CREATED: ['IN_TRANSIT', 'CANCELLED'],
-    IN_TRANSIT: ['OUT_FOR_DELIVERY', 'DELIVERED', 'EXCEPTION'],
-    OUT_FOR_DELIVERY: ['DELIVERED', 'EXCEPTION'],
-    EXCEPTION: ['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED'],
-};
-
-export const nextShipmentStatuses = (status: string): readonly string[] => SHIPMENT_TRANSITIONS[status] ?? [];
-
-/**
  * Parses a rupee amount typed by staff ("1299", "1,299.50", "₹ 1,299") into
  * paise. Returns null for anything that is not a positive amount with at most
  * two decimal places.

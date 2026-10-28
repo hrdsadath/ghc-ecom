@@ -43,7 +43,6 @@ import { fallbackImage, rupees, shortDate, slugify, titleCase } from '../lib/com
 import {
     canAdminCancelOrder,
     cancellationRefundPaise,
-    nextShipmentStatuses,
     paiseToRupeesInput as refundAmountInput,
     parseRupeesToPaise,
     refundablePaise,
@@ -427,8 +426,7 @@ const OrdersTable = ({
 
 /** The inline form open inside the order dialog, if any. Closing it (Cancel) aborts the action. */
 type OrderActionForm =
-    | { kind: 'shipment'; carrier: string }
-    | { kind: 'tracking'; shipmentId: string; status: string; note: string }
+    | { kind: 'shipment'; provider: string; trackingNumber: string }
     | { kind: 'review'; returnId: string; status: 'APPROVED' | 'REJECTED' | 'RECEIVED'; note: string; restock: boolean }
     | { kind: 'refund'; returnId: string; amount: string; error: string }
     | { kind: 'cancel'; reason: string; error: string };
@@ -444,7 +442,6 @@ const OrdersAdmin = () => {
     // Support staff view orders and handle returns; fulfilment moves belong to the warehouse.
     const canShip = can('ADMIN', 'WAREHOUSE_MANAGER');
     const canTransition = can('ADMIN', 'WAREHOUSE_MANAGER');
-    const canTrack = can('ADMIN', 'WAREHOUSE_MANAGER');
     const canCancel = can('ADMIN');
     const canReviewReturns = can('ADMIN', 'SUPPORT_AGENT', 'WAREHOUSE_MANAGER');
     const canRestock = can('ADMIN', 'WAREHOUSE_MANAGER');
@@ -452,7 +449,7 @@ const OrdersAdmin = () => {
 
     const [orders, setOrders] = useState<Order[]>([]);
     const [query, setQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('ALL');
+    const [statusFilter, setStatusFilter] = useState('CONFIRMED');
     const [selected, setSelected] = useState<Order | null>(null);
     const [detail, setDetail] = useState<Order | null>(null);
     const [detailError, setDetailError] = useState('');
@@ -473,7 +470,7 @@ const OrdersAdmin = () => {
     };
     const orderDialogRef = useDialog<HTMLDivElement>(Boolean(selected), closeOrder);
 
-    const load = async (search = '', status = 'ALL', offset = 0, append = false) => {
+    const load = async (search = '', status = 'CONFIRMED', offset = 0, append = false) => {
         // Only the latest list request may write state, so fast filter clicks never show stale rows.
         listRequest.current?.abort();
         const controller = new AbortController();
@@ -510,7 +507,7 @@ const OrdersAdmin = () => {
     };
 
     useEffect(() => {
-        void load('', 'ALL', 0, false);
+        void load('', 'CONFIRMED', 0, false);
         return () => {
             listRequest.current?.abort();
             detailRequest.current?.abort();
@@ -586,25 +583,12 @@ const OrdersAdmin = () => {
         }, 'Unable to update order status.');
     };
 
-    const submitShipment = (carrier: string) => {
+    const submitShipped = (provider: string, trackingNumber: string) => {
         if (!detail) return;
         void run('shipment', async () => {
-            await api.createShipment(detail.id, carrier.trim() || undefined);
-            return 'Shipment created.';
-        }, 'Unable to create shipment.');
-    };
-
-    const submitTracking = (shipmentId: string, status: string, note: string) => {
-        if (!detail || !status) return;
-        void run('tracking', async () => {
-            await api.addTrackingEvent(shipmentId, {
-                providerEventId: `manual-${Date.now()}`,
-                status,
-                occurredAt: new Date().toISOString(),
-                message: note.trim() || 'Updated by staff',
-            });
-            return `Shipment marked ${titleCase(status)}.`;
-        }, 'Unable to add tracking event.');
+            await api.markOrderShipped(detail.id, { provider: provider.trim(), trackingNumber: trackingNumber.trim() });
+            return 'Order marked shipped. The customer will be emailed the tracking number.';
+        }, 'Unable to mark the order shipped.');
     };
 
     const submitReview = (returnId: string, status: string, note: string, restock: boolean) => {
@@ -684,7 +668,6 @@ const OrdersAdmin = () => {
     };
 
     const header = detail ?? selected;
-    const activeShipment = detail?.shipments?.some((shipment) => shipment.status !== 'CANCELLED') ?? false;
 
     return (
         <AdminShell title="Orders" description="Search paid customer orders and view their complete product, customer, and payment records.">
@@ -712,7 +695,7 @@ const OrdersAdmin = () => {
                 </form>
 
                 <div className="admin-filter-pills flex max-w-full flex-nowrap gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
-                    {['ALL', 'PAYMENT_PENDING', 'PAYMENT_FAILED', 'CONFIRMED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'].map((st) => (
+                    {['CONFIRMED', 'PROCESSING', 'SHIPPED'].map((st) => (
                         <button
                             key={st}
                             onClick={() => {
@@ -875,9 +858,9 @@ const OrdersAdmin = () => {
                                             {busy === 'transition' ? 'Updating…' : 'Start processing'}
                                         </button>
                                     )}
-                                    {detail.status === 'PROCESSING' && canShip && !activeShipment && form?.kind !== 'shipment' && (
-                                        <button type="button" disabled={busy !== null} onClick={() => setForm({ kind: 'shipment', carrier: '' })} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
-                                            Create shipment
+                                    {detail.status === 'PROCESSING' && canShip && form?.kind !== 'shipment' && (
+                                        <button type="button" disabled={busy !== null} onClick={() => setForm({ kind: 'shipment', provider: '', trackingNumber: '' })} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                            Mark shipped
                                         </button>
                                     )}
                                     {canCancel && canAdminCancelOrder(detail) && form?.kind !== 'cancel' && (
@@ -945,23 +928,39 @@ const OrdersAdmin = () => {
                                         className="mt-4 space-y-3 border-t border-gold-500/10 pt-4"
                                         onSubmit={(event) => {
                                             event.preventDefault();
-                                            submitShipment(form.carrier);
+                                            submitShipped(form.provider, form.trackingNumber);
                                         }}
                                     >
+                                        <p className="text-xs text-cream/60">The customer is emailed these details with a thank-you note.</p>
                                         <label className="block text-xs text-cream/70">
-                                            Carrier (optional)
+                                            Shipping provider
                                             <input
-                                                value={form.carrier}
+                                                value={form.provider}
                                                 maxLength={100}
-                                                onChange={(event) => setForm({ ...form, carrier: event.target.value })}
+                                                required
+                                                onChange={(event) => setForm({ ...form, provider: event.target.value })}
                                                 className={`${inputStyle} mt-1`}
                                                 placeholder="e.g. Blue Dart"
                                                 autoFocus
                                             />
                                         </label>
+                                        <label className="block text-xs text-cream/70">
+                                            Tracking number
+                                            <input
+                                                value={form.trackingNumber}
+                                                maxLength={100}
+                                                required
+                                                onChange={(event) => setForm({ ...form, trackingNumber: event.target.value })}
+                                                className={`${inputStyle} mt-1`}
+                                            />
+                                        </label>
                                         <div className="flex gap-2">
-                                            <button type="submit" disabled={busy !== null} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
-                                                {busy === 'shipment' ? 'Creating…' : 'Create shipment'}
+                                            <button
+                                                type="submit"
+                                                disabled={busy !== null || !form.provider.trim() || !form.trackingNumber.trim()}
+                                                className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                {busy === 'shipment' ? 'Marking shipped…' : 'Mark shipped'}
                                             </button>
                                             <button type="button" disabled={busy !== null} onClick={() => setForm(null)} className={`${actionButton} border-gold-500/30 text-cream/70`}>
                                                 Cancel
@@ -975,66 +974,11 @@ const OrdersAdmin = () => {
                         {(detail.shipments || []).length > 0 && (
                             <section className="mt-6 border border-gold-500/15 bg-obsidian/40 p-4">
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-gold-400">Shipments</h4>
-                                {(detail.shipments || []).map((shipment) => {
-                                    const nextStatuses = nextShipmentStatuses(shipment.status);
-                                    const editing = form?.kind === 'tracking' && form.shipmentId === shipment.id ? form : null;
-                                    return (
-                                        <div key={shipment.id} className="mt-3 text-xs text-cream/70">
-                                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                                <span>{shipment.carrier || shipment.provider} · {shipment.trackingNumber || 'Tracking pending'} · {titleCase(shipment.status)}</span>
-                                                {canTrack && nextStatuses.length > 0 && !editing && (
-                                                    <button
-                                                        type="button"
-                                                        disabled={busy !== null}
-                                                        onClick={() => setForm({ kind: 'tracking', shipmentId: shipment.id, status: nextStatuses[0], note: '' })}
-                                                        className={`${actionButton} border-gold-500/30 text-gold-300`}
-                                                    >
-                                                        Add tracking update
-                                                    </button>
-                                                )}
-                                            </div>
-                                            {editing && (
-                                                <form
-                                                    className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-                                                    onSubmit={(event) => {
-                                                        event.preventDefault();
-                                                        submitTracking(shipment.id, editing.status, editing.note);
-                                                    }}
-                                                >
-                                                    <label className="block">
-                                                        New status
-                                                        <select
-                                                            value={editing.status}
-                                                            onChange={(event) => setForm({ ...editing, status: event.target.value })}
-                                                            className={`${inputStyle} mt-1`}
-                                                        >
-                                                            {nextStatuses.map((status) => (
-                                                                <option key={status} value={status}>{titleCase(status)}</option>
-                                                            ))}
-                                                        </select>
-                                                    </label>
-                                                    <label className="block">
-                                                        Note (optional)
-                                                        <input
-                                                            value={editing.note}
-                                                            maxLength={500}
-                                                            onChange={(event) => setForm({ ...editing, note: event.target.value })}
-                                                            className={`${inputStyle} mt-1`}
-                                                        />
-                                                    </label>
-                                                    <div className="flex gap-2">
-                                                        <button type="submit" disabled={busy !== null} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
-                                                            {busy === 'tracking' ? 'Saving…' : 'Save'}
-                                                        </button>
-                                                        <button type="button" disabled={busy !== null} onClick={() => setForm(null)} className={`${actionButton} border-gold-500/30 text-cream/70`}>
-                                                            Cancel
-                                                        </button>
-                                                    </div>
-                                                </form>
-                                            )}
-                                        </div>
-                                    );
-                                })}
+                                {(detail.shipments || []).map((shipment) => (
+                                    <div key={shipment.id} className="mt-3 text-xs text-cream/70">
+                                        <span>{shipment.carrier || shipment.provider} · {shipment.trackingNumber || 'Tracking pending'} · {titleCase(shipment.status)}</span>
+                                    </div>
+                                ))}
                             </section>
                         )}
 

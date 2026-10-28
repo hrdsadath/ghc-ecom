@@ -18,6 +18,7 @@ describe('FulfilmentService', () => {
     order: { findUnique: jest.Mock };
     shipment: {
       create: jest.Mock;
+      update: jest.Mock;
       findFirst: jest.Mock;
       findMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
@@ -49,6 +50,7 @@ describe('FulfilmentService', () => {
       order: { findUnique: jest.fn().mockResolvedValue(order) },
       shipment: {
         create: jest.fn().mockResolvedValue({ id: 'shipment-1' }),
+        update: jest.fn().mockResolvedValue({ id: 'shipment-1' }),
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         findUniqueOrThrow: jest.fn().mockResolvedValue({
@@ -124,6 +126,53 @@ describe('FulfilmentService', () => {
       ConflictException,
     );
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.shipment.create).not.toHaveBeenCalled();
+  });
+
+  const shippedInput = { provider: 'Blue Dart', trackingNumber: 'BD-1001' };
+
+  it('creates the shipment from the entered provider and tracking number, then ships it', async () => {
+    prisma.$queryRaw = jest.fn().mockResolvedValue([{ status: 'processing' }]);
+    prisma.shipment.findFirst = jest.fn().mockResolvedValue(null);
+    prisma.$executeRaw = jest.fn().mockResolvedValue(1);
+
+    await service.markShipped('admin-1', order.id, shippedInput);
+
+    expect(prisma.shipment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        orderId: order.id,
+        provider: 'Blue Dart',
+        trackingNumber: 'BD-1001',
+      }),
+    });
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'order.marked_shipped', actorId: 'admin-1' }),
+    );
+  });
+
+  it('updates an unshipped shipment instead of adding a second one', async () => {
+    prisma.$queryRaw = jest.fn().mockResolvedValue([{ status: 'processing' }]);
+    prisma.shipment.findFirst = jest.fn().mockResolvedValue({ id: 'shipment-9' });
+    prisma.$executeRaw = jest.fn().mockResolvedValue(1);
+
+    await service.markShipped('admin-1', order.id, shippedInput);
+
+    expect(prisma.shipment.update).toHaveBeenCalledWith({
+      where: { id: 'shipment-9' },
+      data: { provider: 'Blue Dart', trackingNumber: 'BD-1001' },
+    });
+    expect(prisma.shipment.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to mark an order that is not processing', async () => {
+    prisma.$queryRaw = jest.fn().mockResolvedValue([{ status: 'confirmed' }]);
+    prisma.$executeRaw = jest.fn().mockResolvedValue(1);
+
+    await expect(service.markShipped('admin-1', order.id, shippedInput)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
     expect(prisma.shipment.create).not.toHaveBeenCalled();
   });
 
@@ -224,6 +273,30 @@ describe('FulfilmentService', () => {
         eligibleUntil: new Date(deliveredAt.getTime() + 30 * 24 * 60 * 60 * 1000),
       }),
     });
+  });
+
+  it('runs the return window from dispatch when the order was never marked delivered', async () => {
+    const shippedAt = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    prisma.shipment.findFirst.mockResolvedValue({ deliveredAt: null, shippedAt });
+
+    await service.requestReturn('customer-1', order.id, {
+      reason: 'The product was damaged during delivery',
+    });
+
+    expect(prisma.returnRequest.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eligibleUntil: new Date(shippedAt.getTime() + 30 * 24 * 60 * 60 * 1000),
+      }),
+    });
+  });
+
+  it('refuses a return when no shipment has left yet', async () => {
+    prisma.shipment.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.requestReturn('customer-1', order.id, { reason: 'Changed my mind about this' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.returnRequest.create).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid return review transition', async () => {

@@ -365,7 +365,7 @@ describe('OrdersService', () => {
 
     expect(roles(orders.transition)).toEqual([AppRole.ADMIN, AppRole.WAREHOUSE_MANAGER]);
     expect(roles(orders.cancel)).toEqual([AppRole.ADMIN]);
-    expect(roles(fulfilment.addTracking)).toEqual([AppRole.ADMIN, AppRole.WAREHOUSE_MANAGER]);
+    expect(roles(fulfilment.markShipped)).toEqual([AppRole.ADMIN, AppRole.WAREHOUSE_MANAGER]);
     expect(roles(fulfilment.createShipment)).toEqual([AppRole.ADMIN, AppRole.WAREHOUSE_MANAGER]);
     // Support still views orders and handles returns.
     expect(roles(AdminOrdersController)).toContain(AppRole.SUPPORT_AGENT);
