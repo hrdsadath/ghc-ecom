@@ -90,8 +90,8 @@ export const pageContent: Record<
                 note: 'If the outer parcel appears severely tampered with or crushed upon delivery, please refuse the package from the courier and inform our customer support team right away.',
             },
             {
-                title: '4. Order Tracking',
-                body: "Once your package is shipped, tracking details will be sent via Email / SMS / WhatsApp. You can track your shipment anytime using the provided tracking code on the courier's portal.",
+                title: '4. Order Shipped',
+                body: 'Once your order has shipped, we will send you a confirmation email. Keep it and your order number for your records.',
             },
             {
                 title: '5. Incorrect Address & Failed Deliveries',

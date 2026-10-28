@@ -21,7 +21,6 @@ import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
-import { MarkShippedDto } from './dto/mark-shipped.dto';
 import { ReviewReturnDto } from './dto/review-return.dto';
 import { ShippingProviderService } from './shipping-provider.service';
 
@@ -99,12 +98,11 @@ export class FulfilmentService {
   }
 
   /**
-   * Marks a processing order shipped with the provider name and tracking number staff
-   * enter. The shipment is created (or the unshipped one updated), then
-   * `advance_shipment_status` moves it in transit and the order to shipped in the same
-   * transaction, which queues the `order.shipped` email with those details.
+   * Marks a processing order shipped. The shipment is created (or the unshipped one reused),
+   * then `advance_shipment_status` moves it in transit and the order to shipped in the same
+   * transaction, which queues the `order.shipped` thank-you email.
    */
-  async markShipped(actorId: string, orderId: string, input: MarkShippedDto): Promise<Shipment> {
+  async markShipped(actorId: string, orderId: string): Promise<Shipment> {
     const shipmentId = await this.prisma.$transaction(async (transaction) => {
       // The row lock serialises a mark-shipped with a concurrent cancellation of the same order.
       const [row] = await transaction.$queryRaw<Array<{ status: string }>>`
@@ -119,32 +117,19 @@ export class FulfilmentService {
         where: { orderId, status: { in: [ShipmentStatus.CREATED, ShipmentStatus.LABEL_CREATED] } },
         orderBy: { createdAt: 'desc' },
       });
-      let id: string;
-      try {
-        if (live) {
-          await transaction.shipment.update({
-            where: { id: live.id },
-            data: { provider: input.provider, trackingNumber: input.trackingNumber },
-          });
-          id = live.id;
-        } else {
-          const created = await transaction.shipment.create({
+      // No courier or tracking number is recorded for a staff-shipped order.
+      const id =
+        live?.id ??
+        (
+          await transaction.shipment.create({
             data: {
               orderId,
-              provider: input.provider,
-              trackingNumber: input.trackingNumber,
+              provider: 'manual',
               addressSnapshot: this.json(order.addressSnapshot),
               items: { create: this.provider.items(order.itemsSnapshot) },
             },
-          });
-          id = created.id;
-        }
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          throw new ConflictException('That tracking number is already used on another shipment');
-        }
-        throw error;
-      }
+          })
+        ).id;
       const target = ShipmentStatus.IN_TRANSIT.toLowerCase();
       try {
         await transaction.$executeRaw`select public.advance_shipment_status(
@@ -165,7 +150,7 @@ export class FulfilmentService {
       action: 'order.marked_shipped',
       entityType: 'shipment',
       entityId: shipmentId,
-      metadata: { orderId, provider: input.provider },
+      metadata: { orderId },
     });
     return this.prisma.shipment.findUniqueOrThrow({ where: { id: shipmentId } });
   }

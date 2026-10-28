@@ -8,20 +8,19 @@ import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { fallbackImage, rupees, shortDate, titleCase } from '../lib/commerce';
 import { openTrustedUrlFrom } from '../lib/navigation';
-import { Order, Shipment } from '../types';
+import { Order } from '../types';
 
 const OrderDetailPage = () => {
     const { signedIn, isInitializing } = useAuth();
     const { orderId } = useParams<{ orderId: string }>();
     const [order, setOrder] = useState<Order | null>(null);
     const [error, setError] = useState('');
-    const [shipments, setShipments] = useState<Shipment[]>([]);
     const [working, setWorking] = useState(false);
 
     useEffect(() => {
         if (signedIn) {
-            Promise.all([api.order(orderId), api.shipments(orderId)])
-                .then(([nextOrder, nextShipments]) => { setOrder(nextOrder); setShipments(nextShipments); })
+            api.order(orderId)
+                .then((nextOrder) => setOrder(nextOrder))
                 .catch((caught) => setError(caught instanceof Error ? caught.message : 'Unable to load order.'));
         }
     }, [orderId, signedIn]);
@@ -86,11 +85,6 @@ const OrderDetailPage = () => {
                                 {['SHIPPED', 'DELIVERED'].includes(order.status) && (
                                     <button disabled={working} onClick={() => void requestReturn()} className="border border-gold-500/40 px-4 py-2 text-xs font-bold uppercase text-gold-200 disabled:opacity-50">Request return</button>
                                 )}
-                                {shipments.map((shipment) => (
-                                    <Link key={shipment.id} to={`/tracking/${order.orderNumber}`} className="border border-gold-500/30 px-4 py-2 text-xs font-bold uppercase text-gold-300">
-                                        Track {shipment.trackingNumber || 'shipment'}
-                                    </Link>
-                                ))}
                             </div>
 
                             <div className="divide-y divide-gold-500/15 my-4">

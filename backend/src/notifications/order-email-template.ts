@@ -2,12 +2,6 @@ import { Order, Prisma } from '@prisma/client';
 
 export type OrderEmailEvent = 'order.confirmed' | 'order.shipped' | 'order.cancelled';
 
-export interface ShipmentTracking {
-  provider?: string | null;
-  carrier?: string | null;
-  trackingNumber?: string | null;
-}
-
 interface SnapshotItem {
   productName?: string;
   color?: string;
@@ -75,17 +69,13 @@ export const renderOrderEmail = (
   order: Order,
   event: OrderEmailEvent,
   recipientName?: string,
-  tracking?: ShipmentTracking | null,
 ): RenderedOrderEmail => {
   const confirmed = event === 'order.confirmed';
   const shipped = event === 'order.shipped';
-  const trackingCode = tracking?.trackingNumber?.trim() || '';
-  const provider = tracking?.provider?.trim() || '';
-  const carrier = tracking?.carrier?.trim() || '';
   const title = confirmed
     ? 'Your order is confirmed'
     : shipped
-      ? 'Your order is on its way'
+      ? 'Your order has shipped'
       : 'Your order has been cancelled';
   const eyebrow = confirmed ? 'ORDER CONFIRMED' : shipped ? 'ORDER SHIPPED' : 'ORDER CANCELLED';
   const accent = confirmed ? '#b8862f' : shipped ? '#3f6e5a' : '#9d4b4b';
@@ -93,31 +83,13 @@ export const renderOrderEmail = (
   const intro = confirmed
     ? 'Your table is about to get more beautiful. We have received your order and will keep you updated at every step.'
     : shipped
-      ? 'Thank you for shopping with Glockery. Your order has left our warehouse and is on its way to you.'
+      ? 'Thank you for shopping with Glockery. We have shipped your item and it is on its way to you.'
       : 'We have cancelled your order. If a payment was captured, the refund will be returned to the original payment method.';
   const nextStep = confirmed
     ? 'Your payment is confirmed. Keep this email and your order number for your records and any support enquiry.'
     : shipped
-      ? trackingCode
-        ? `Track your parcel${provider ? ` with ${provider}` : ''} using tracking number ${trackingCode}.`
-        : 'Your tracking number will be shared shortly. Keep this email and your order number for your records.'
+      ? 'Keep this email and your order number for your records and any support enquiry.'
       : 'Refund timing depends on your bank or payment method. We will notify you when the refund is processed.';
-  const trackingHtml =
-    shipped && trackingCode
-      ? `
-          <tr><td style="padding:24px 36px 0;">
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border:1px solid #e8e1d5;">
-              <tr>
-                <td style="padding:16px 18px;background:#fbf7ef;">
-                  <p style="margin:0;color:#756e62;font:700 10px/15px Arial,sans-serif;letter-spacing:1.2px;">TRACKING NUMBER</p>
-                  <p style="margin:5px 0 0;color:#171511;font:700 16px/22px Arial,sans-serif;letter-spacing:0.5px;">${escapeHtml(trackingCode)}</p>
-                  ${provider ? `<p style="margin:3px 0 0;color:#756e62;font:11px/17px Arial,sans-serif;">Shipping partner: ${escapeHtml(provider)}</p>` : ''}
-                  ${carrier ? `<p style="margin:3px 0 0;color:#756e62;font:11px/17px Arial,sans-serif;">Courier: ${escapeHtml(carrier)}</p>` : ''}
-                </td>
-              </tr>
-            </table>
-          </td></tr>`
-      : '';
   const returnUrl = `https://www.glockery.com/account/orders/${order.id}`;
   const returnText = shipped
     ? `\n\nNot quite right? Start a return from your order page: ${returnUrl}`
@@ -191,7 +163,6 @@ export const renderOrderEmail = (
               </tr>
             </table>
           </td></tr>
-          ${trackingHtml}
           <tr><td style="padding:28px 36px 0;">
             <p style="margin:0 0 8px;color:#171511;font:700 12px/18px Arial,sans-serif;letter-spacing:1.1px;">YOUR PIECES</p>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">${itemRows || '<tr><td style="padding:16px 0;color:#756e62;font:14px/20px Arial,sans-serif;">Your order details are available in your account.</td></tr>'}</table>

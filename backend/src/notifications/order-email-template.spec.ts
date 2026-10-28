@@ -38,27 +38,20 @@ describe('renderOrderEmail', () => {
     );
   });
 
-  it('sends the shipped thank-you with the shipping partner and tracking number', () => {
-    const email = renderOrderEmail(order, 'order.shipped', 'Faheem', {
-      provider: 'Shiprocket',
-      trackingNumber: 'SR<77>',
-    });
+  it('sends a shipped thank-you that says the item has shipped, with no tracking details', () => {
+    const email = renderOrderEmail(order, 'order.shipped', 'Faheem');
 
     expect(email.subject).toBe('Shipped — your Glockery order GHC-EMAIL-42');
-    expect(email.text).toContain('Track your parcel with Shiprocket using tracking number SR<77>.');
-    expect(email.html).toContain('Your order is on its way');
-    expect(email.html).toContain('TRACKING NUMBER');
-    expect(email.html).toContain('Shipping partner: Shiprocket');
-    expect(email.html).toContain('SR&lt;77&gt;');
-    expect(email.html).not.toContain('SR<77>');
+    expect(email.text).toContain('Your order has shipped');
+    expect(email.html).toContain('Your order has shipped');
+    expect(email.html).toContain('We have shipped your item and it is on its way to you.');
+    expect(email.html).not.toMatch(/tracking/i);
+    expect(email.text).not.toMatch(/tracking/i);
   });
 
   it('links the shipped email to the order page to start a return, and no other email does', () => {
     const returnUrl = 'https://www.glockery.com/account/orders/1b4e28ba-2fa1-11d2-883f-0016d3cca427';
-    const shipped = renderOrderEmail(order, 'order.shipped', 'Faheem', {
-      provider: 'Shiprocket',
-      trackingNumber: 'SR-1',
-    });
+    const shipped = renderOrderEmail(order, 'order.shipped', 'Faheem');
     const confirmed = renderOrderEmail(order, 'order.confirmed', 'Faheem');
 
     expect(shipped.html).toContain(`href="${returnUrl}"`);
@@ -66,13 +59,6 @@ describe('renderOrderEmail', () => {
     expect(shipped.text).toContain(`Start a return from your order page: ${returnUrl}`);
     expect(confirmed.html).not.toContain('START A RETURN');
     expect(confirmed.text).not.toContain('Start a return');
-  });
-
-  it('tells the customer the tracking number follows when none is recorded yet', () => {
-    const email = renderOrderEmail(order, 'order.shipped', 'Faheem', null);
-
-    expect(email.text).toContain('Your tracking number will be shared shortly.');
-    expect(email.html).not.toContain('TRACKING NUMBER');
   });
 
   it('uses cancellation content and escapes unsafe customer input', () => {

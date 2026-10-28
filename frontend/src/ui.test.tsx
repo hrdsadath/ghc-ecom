@@ -1141,8 +1141,7 @@ describe('black and gold commerce UI', () => {
         // Cancelling the mark-shipped form never ships the order.
         await click('View');
         await click('Mark shipped');
-        expect(document.body.textContent).toContain('Shipping provider');
-        expect(document.body.textContent).toContain('Tracking number');
+        expect(document.body.textContent).toContain('Confirm the order has left the warehouse');
         await click('Cancel');
         expect(ordersFetch.mock.calls.some(([request, init]) => String(request).includes('/mark-shipped') && init?.method === 'POST')).toBe(false);
         act(() => mountedRoot?.unmount());

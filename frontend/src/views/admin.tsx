@@ -426,7 +426,7 @@ const OrdersTable = ({
 
 /** The inline form open inside the order dialog, if any. Closing it (Cancel) aborts the action. */
 type OrderActionForm =
-    | { kind: 'shipment'; provider: string; trackingNumber: string }
+    | { kind: 'shipment' }
     | { kind: 'review'; returnId: string; status: 'APPROVED' | 'REJECTED' | 'RECEIVED'; note: string; restock: boolean }
     | { kind: 'refund'; returnId: string; amount: string; error: string }
     | { kind: 'cancel'; reason: string; error: string };
@@ -583,11 +583,11 @@ const OrdersAdmin = () => {
         }, 'Unable to update order status.');
     };
 
-    const submitShipped = (provider: string, trackingNumber: string) => {
+    const submitShipped = () => {
         if (!detail) return;
         void run('shipment', async () => {
-            await api.markOrderShipped(detail.id, { provider: provider.trim(), trackingNumber: trackingNumber.trim() });
-            return 'Order marked shipped. The customer will be emailed the tracking number.';
+            await api.markOrderShipped(detail.id);
+            return 'Order marked shipped. The customer will be emailed a thank-you.';
         }, 'Unable to mark the order shipped.');
     };
 
@@ -859,7 +859,7 @@ const OrdersAdmin = () => {
                                         </button>
                                     )}
                                     {detail.status === 'PROCESSING' && canShip && form?.kind !== 'shipment' && (
-                                        <button type="button" disabled={busy !== null} onClick={() => setForm({ kind: 'shipment', provider: '', trackingNumber: '' })} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
+                                        <button type="button" disabled={busy !== null} onClick={() => setForm({ kind: 'shipment' })} className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50">
                                             Mark shipped
                                         </button>
                                     )}
@@ -928,36 +928,14 @@ const OrdersAdmin = () => {
                                         className="mt-4 space-y-3 border-t border-gold-500/10 pt-4"
                                         onSubmit={(event) => {
                                             event.preventDefault();
-                                            submitShipped(form.provider, form.trackingNumber);
+                                            submitShipped();
                                         }}
                                     >
-                                        <p className="text-xs text-cream/60">The customer is emailed these details with a thank-you note.</p>
-                                        <label className="block text-xs text-cream/70">
-                                            Shipping provider
-                                            <input
-                                                value={form.provider}
-                                                maxLength={100}
-                                                required
-                                                onChange={(event) => setForm({ ...form, provider: event.target.value })}
-                                                className={`${inputStyle} mt-1`}
-                                                placeholder="e.g. Blue Dart"
-                                                autoFocus
-                                            />
-                                        </label>
-                                        <label className="block text-xs text-cream/70">
-                                            Tracking number
-                                            <input
-                                                value={form.trackingNumber}
-                                                maxLength={100}
-                                                required
-                                                onChange={(event) => setForm({ ...form, trackingNumber: event.target.value })}
-                                                className={`${inputStyle} mt-1`}
-                                            />
-                                        </label>
+                                        <p className="text-xs text-cream/60">Confirm the order has left the warehouse. The customer is emailed a thank-you to say it has shipped.</p>
                                         <div className="flex gap-2">
                                             <button
                                                 type="submit"
-                                                disabled={busy !== null || !form.provider.trim() || !form.trackingNumber.trim()}
+                                                disabled={busy !== null}
                                                 className="rounded-sm bg-gold-400 px-3 py-2 text-xs font-bold text-obsidian disabled:cursor-not-allowed disabled:opacity-50"
                                             >
                                                 {busy === 'shipment' ? 'Marking shipped…' : 'Mark shipped'}
@@ -976,7 +954,7 @@ const OrdersAdmin = () => {
                                 <h4 className="text-xs font-bold uppercase tracking-wider text-gold-400">Shipments</h4>
                                 {(detail.shipments || []).map((shipment) => (
                                     <div key={shipment.id} className="mt-3 text-xs text-cream/70">
-                                        <span>{shipment.carrier || shipment.provider} · {shipment.trackingNumber || 'Tracking pending'} · {titleCase(shipment.status)}</span>
+                                        <span>{titleCase(shipment.status)}</span>
                                     </div>
                                 ))}
                             </section>

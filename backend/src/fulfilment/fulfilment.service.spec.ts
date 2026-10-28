@@ -129,47 +129,40 @@ describe('FulfilmentService', () => {
     expect(prisma.shipment.create).not.toHaveBeenCalled();
   });
 
-  const shippedInput = { provider: 'Blue Dart', trackingNumber: 'BD-1001' };
-
-  it('creates the shipment from the entered provider and tracking number, then ships it', async () => {
+  it('creates an untracked shipment for the order, then ships it', async () => {
     prisma.$queryRaw = jest.fn().mockResolvedValue([{ status: 'processing' }]);
     prisma.shipment.findFirst = jest.fn().mockResolvedValue(null);
     prisma.$executeRaw = jest.fn().mockResolvedValue(1);
 
-    await service.markShipped('admin-1', order.id, shippedInput);
+    await service.markShipped('admin-1', order.id);
 
     expect(prisma.shipment.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        orderId: order.id,
-        provider: 'Blue Dart',
-        trackingNumber: 'BD-1001',
-      }),
+      data: expect.objectContaining({ orderId: order.id, provider: 'manual' }),
     });
+    expect(prisma.shipment.create.mock.calls[0][0].data).not.toHaveProperty('trackingNumber');
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'order.marked_shipped', actorId: 'admin-1' }),
     );
   });
 
-  it('updates an unshipped shipment instead of adding a second one', async () => {
+  it('reuses an unshipped shipment instead of adding a second one', async () => {
     prisma.$queryRaw = jest.fn().mockResolvedValue([{ status: 'processing' }]);
     prisma.shipment.findFirst = jest.fn().mockResolvedValue({ id: 'shipment-9' });
     prisma.$executeRaw = jest.fn().mockResolvedValue(1);
 
-    await service.markShipped('admin-1', order.id, shippedInput);
+    await service.markShipped('admin-1', order.id);
 
-    expect(prisma.shipment.update).toHaveBeenCalledWith({
-      where: { id: 'shipment-9' },
-      data: { provider: 'Blue Dart', trackingNumber: 'BD-1001' },
-    });
+    expect(prisma.shipment.update).not.toHaveBeenCalled();
     expect(prisma.shipment.create).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
   it('refuses to mark an order that is not processing', async () => {
     prisma.$queryRaw = jest.fn().mockResolvedValue([{ status: 'confirmed' }]);
     prisma.$executeRaw = jest.fn().mockResolvedValue(1);
 
-    await expect(service.markShipped('admin-1', order.id, shippedInput)).rejects.toThrow(
+    await expect(service.markShipped('admin-1', order.id)).rejects.toThrow(
       BadRequestException,
     );
     expect(prisma.$executeRaw).not.toHaveBeenCalled();

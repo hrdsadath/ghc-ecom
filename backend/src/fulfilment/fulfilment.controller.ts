@@ -19,7 +19,6 @@ import { SupabaseAuthGuard } from '../auth/guards/supabase-auth.guard';
 import { CreateRefundDto } from './dto/create-refund.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { CreateShipmentDto } from './dto/create-shipment.dto';
-import { MarkShippedDto } from './dto/mark-shipped.dto';
 import { ReviewReturnDto } from './dto/review-return.dto';
 import { FulfilmentService, ReviewedReturn, ShipmentDetail } from './fulfilment.service';
 import { RefundReconciliationResult, RefundsService } from './refunds.service';
@@ -68,9 +67,8 @@ export class FulfilmentController {
   markShipped(
     @CurrentUser() actor: AuthenticatedUser,
     @Param('orderId', ParseUUIDPipe) orderId: string,
-    @Body() input: MarkShippedDto,
   ): Promise<Shipment> {
-    return this.fulfilment.markShipped(actor.id, orderId, input);
+    return this.fulfilment.markShipped(actor.id, orderId);
   }
 
   @Patch('admin/returns/:returnId')

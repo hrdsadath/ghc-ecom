@@ -6,17 +6,12 @@ import {
   OutboxEvent,
   OutboxStatus,
   Prisma,
-  ShipmentStatus,
 } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { RefundsService } from '../fulfilment/refunds.service';
 import { InvoiceService } from '../orders/invoice.service';
 import { NotificationMessage, NotificationSenderService } from './notification-sender.service';
-import {
-  OrderEmailEvent,
-  renderOrderEmail,
-  ShipmentTracking,
-} from './order-email-template';
+import { OrderEmailEvent, renderOrderEmail } from './order-email-template';
 
 const MAX_ATTEMPTS = 5;
 const NOTIFIED_ORDER_EVENTS: readonly OrderEmailEvent[] = [
@@ -134,19 +129,9 @@ export class OutboxService {
     if (!emailEvent) {
       return;
     }
-    const tracking =
-      emailEvent === 'order.shipped' ? await this.latestTracking(order.id) : undefined;
-    for (const message of this.messages(order, emailEvent, tracking)) {
+    for (const message of this.messages(order, emailEvent)) {
       await this.deliver(event, order, message);
     }
-  }
-
-  private latestTracking(orderId: string): Promise<ShipmentTracking | null> {
-    return this.prisma.shipment.findFirst({
-      where: { orderId, status: { not: ShipmentStatus.CANCELLED } },
-      orderBy: { createdAt: 'desc' },
-      select: { provider: true, carrier: true, trackingNumber: true },
-    });
   }
 
   private async deliver(
@@ -202,13 +187,9 @@ export class OutboxService {
     }
   }
 
-  private messages(
-    order: Order,
-    event: OrderEmailEvent,
-    tracking?: ShipmentTracking | null,
-  ): NotificationMessage[] {
+  private messages(order: Order, event: OrderEmailEvent): NotificationMessage[] {
     const contact = this.contact(order.addressSnapshot);
-    const email = renderOrderEmail(order, event, contact.recipientName, tracking);
+    const email = renderOrderEmail(order, event, contact.recipientName);
     const candidates: Array<[NotificationChannel, string | undefined]> = [
       [NotificationChannel.EMAIL, contact.email],
       [NotificationChannel.SMS, contact.phone],

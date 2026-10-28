@@ -507,8 +507,8 @@ export const api = {
     /** Admin-only: cancels a paid, unshipped order; stock is released and the payment refunded automatically. */
     cancelAdminOrder: (id: string, reason: string) =>
         request<Order>(`/admin/orders/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }, { auth: true }),
-    markOrderShipped: (orderId: string, input: { provider: string; trackingNumber: string }) =>
-        request<Shipment>(`/admin/orders/${orderId}/mark-shipped`, { method: 'POST', body: JSON.stringify(input) }, { auth: true }),
+    markOrderShipped: (orderId: string) =>
+        request<Shipment>(`/admin/orders/${orderId}/mark-shipped`, { method: 'POST' }, { auth: true }),
     reviewReturn: (returnId: string, status: string, note?: string, restock?: boolean) =>
         request<ReturnRequest & { restockedUnits?: number }>(
             `/admin/returns/${returnId}`,
