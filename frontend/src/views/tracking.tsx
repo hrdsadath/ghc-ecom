@@ -33,56 +33,71 @@ export const ShipmentTrackingPage = () => {
     }, [signedIn, trackingNumber]);
 
     return (
-        <div className="flex min-h-screen flex-col justify-between bg-obsidian font-body text-cream">
+        <div className="relative flex min-h-screen flex-col justify-between overflow-hidden bg-obsidian font-body text-cream">
+            {/* Ambient Background Glow Orbs */}
+            <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-96 w-96 -translate-x-1/2 rounded-full bg-gold-400/10 blur-[130px]" />
+
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-3xl flex-1 px-4 py-12 sm:px-8 lg:py-16">
-                <header className="mb-9 border-y border-line py-8">
-                    <p className="eyebrow">Order tracking</p>
+                <header className="glass-panel mb-8 rounded-3xl p-8">
+                    <p className="eyebrow text-gold-400">Order Tracking</p>
                     <h1 className="mt-2 font-display text-4xl font-semibold sm:text-5xl">Package journey</h1>
-                    {trackingNumber && <p className="mt-3 text-xs tabular-nums text-cream/45">Reference: {trackingNumber}</p>}
+                    {trackingNumber && (
+                        <p className="glass-pill mt-3 inline-block border-white/10 bg-white/[0.04] px-3.5 py-1 font-mono text-xs text-cream/60">
+                            Reference: <span className="text-gold-300 font-bold">{trackingNumber}</span>
+                        </p>
+                    )}
                 </header>
 
                 {!signedIn ? (
-                    <section className="surface p-8 text-center sm:p-12">
-                        <IconPackage size={30} className="mx-auto text-gold-400" />
-                        <h2 className="mt-5 font-display text-3xl font-semibold">Sign in to view live tracking</h2>
-                        <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-cream/50">Shipment events contain private order information and are available from the account that placed the order.</p>
-                        <Link to="/auth" className="button-primary mt-7">Sign in</Link>
+                    <section className="glass-panel rounded-3xl p-8 text-center sm:p-12">
+                        <div className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl border border-gold-400/30 bg-gold-400/10 text-gold-400 shadow-[0_0_20px_rgba(201,163,91,0.15)]">
+                            <IconPackage size={30} />
+                        </div>
+                        <h2 className="mt-2 font-display text-3xl font-semibold">Sign in to view live tracking</h2>
+                        <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-cream/55">Shipment events contain private order information and are available from the account that placed the order.</p>
+                        <Link to="/auth" className="button-primary mt-7 inline-block">Sign in</Link>
                     </section>
                 ) : !trackingNumber ? (
-                    <section className="surface p-8 text-center sm:p-12">
+                    <section className="glass-panel rounded-3xl p-8 text-center sm:p-12">
                         <h2 className="font-display text-3xl font-semibold">Choose an order from your account</h2>
-                        <p className="mt-3 text-sm text-cream/50">Open order history to see shipping details and tracking events.</p>
-                        <Link to="/account/orders" className="button-primary mt-7">View orders</Link>
+                        <p className="mt-3 text-xs leading-relaxed text-cream/55">Open order history to see shipping details and tracking events.</p>
+                        <Link to="/account/orders" className="button-primary mt-7 inline-block">View orders</Link>
                     </section>
                 ) : loading ? (
-                    <div className="surface p-12 text-center text-sm text-cream/45" role="status">Loading shipment events…</div>
+                    <div className="glass-panel rounded-3xl p-12 text-center text-xs text-cream/45" role="status">Loading shipment events…</div>
                 ) : error ? (
-                    <div className="border border-red-500/30 bg-red-950/20 p-6 text-sm text-red-200" role="alert">{error}</div>
+                    <div className="rounded-3xl border border-red-500/30 bg-red-950/20 p-6 text-xs text-red-200 backdrop-blur-xl" role="alert">{error}</div>
                 ) : shipments.length === 0 ? (
-                    <section className="surface p-8 text-center sm:p-12">
-                        <IconPackage size={30} className="mx-auto text-gold-400" />
-                        <h2 className="mt-5 font-display text-3xl font-semibold">Preparing for dispatch</h2>
-                        <p className="mt-3 text-sm text-cream/50">Your order {order?.orderNumber} is confirmed. Tracking will appear here after a shipment is created.</p>
+                    <section className="glass-panel rounded-3xl p-8 text-center sm:p-12">
+                        <div className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl border border-gold-400/30 bg-gold-400/10 text-gold-400 shadow-[0_0_20px_rgba(201,163,91,0.15)]">
+                            <IconPackage size={30} />
+                        </div>
+                        <h2 className="mt-2 font-display text-3xl font-semibold">Preparing for dispatch</h2>
+                        <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-cream/55">Your order {order?.orderNumber} is confirmed. Tracking will appear here after a shipment is created.</p>
                     </section>
                 ) : (
                     <div className="space-y-6">
                         {shipments.map((shipment) => (
-                            <section key={shipment.id} className="surface p-6 sm:p-8">
-                                <header className="flex flex-col justify-between gap-4 border-b border-line pb-5 sm:flex-row sm:items-end">
+                            <section key={shipment.id} className="glass-card rounded-3xl p-6 sm:p-8">
+                                <header className="flex flex-col justify-between gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-end">
                                     <div>
-                                        <p className="eyebrow">{shipment.carrier || shipment.provider}</p>
-                                        <h2 className="mt-1 font-display text-3xl font-semibold">{titleCase(shipment.status)}</h2>
-                                        <p className="mt-1 text-xs tabular-nums text-cream/40">{shipment.trackingNumber || 'Tracking number pending'}</p>
+                                        <p className="eyebrow text-gold-400">{shipment.carrier || shipment.provider}</p>
+                                        <h2 className="mt-1 font-display text-3xl font-semibold text-cream">{titleCase(shipment.status)}</h2>
+                                        <p className="mt-1 font-mono text-xs text-cream/40">{shipment.trackingNumber || 'Tracking number pending'}</p>
                                     </div>
-                                    <span className="flex items-center gap-2 text-xs font-semibold text-gold-200"><IconTruck size={17} /> {shipment.items.reduce((sum, item) => sum + item.quantity, 0)} item(s)</span>
+                                    <span className="glass-pill border-gold-400/30 bg-gold-400/10 px-3 py-1 text-xs font-semibold text-gold-300">
+                                        <IconTruck size={16} className="inline mr-1.5" /> {shipment.items.reduce((sum, item) => sum + item.quantity, 0)} item(s)
+                                    </span>
                                 </header>
                                 <ol className="mt-7 space-y-0">
                                     {shipment.events.length ? shipment.events.map((event, index) => (
-                                        <li key={event.id} className="grid grid-cols-[32px_1fr] gap-4">
+                                        <li key={event.id} className="grid grid-cols-[36px_1fr] gap-4">
                                             <div className="flex flex-col items-center">
-                                                <span className="grid size-8 place-items-center border border-gold-500/40 text-gold-300"><IconCheckCircle size={14} color="#c9a35b" /></span>
-                                                {index < shipment.events.length - 1 && <span className="h-12 w-px bg-line" />}
+                                                <span className="grid size-9 place-items-center rounded-2xl border border-gold-400/40 bg-gold-400/10 text-gold-300 shadow-[0_0_15px_rgba(201,163,91,0.15)]">
+                                                    <IconCheckCircle size={15} color="#c9a35b" />
+                                                </span>
+                                                {index < shipment.events.length - 1 && <span className="h-12 w-px bg-gold-400/20" />}
                                             </div>
                                             <div className="pb-6">
                                                 <p className="text-sm font-semibold text-cream">{event.message || titleCase(event.status)}</p>
@@ -90,7 +105,7 @@ export const ShipmentTrackingPage = () => {
                                             </div>
                                         </li>
                                     )) : (
-                                        <li className="text-sm text-cream/45">The carrier has not posted an event yet.</li>
+                                        <li className="text-xs text-cream/45">The carrier has not posted an event yet.</li>
                                     )}
                                 </ol>
                             </section>

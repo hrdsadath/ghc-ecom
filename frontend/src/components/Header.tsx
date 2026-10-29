@@ -40,74 +40,103 @@ const Header = () => {
                 Skip to content
             </a>
 
-            <header className="sticky top-0 z-40 border-b border-line bg-obsidian/95 supports-[backdrop-filter]:backdrop-blur-md">
-                <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-2 px-3 sm:px-8 lg:h-[72px] lg:px-12">
-                    <button
-                        className="mr-1 grid size-11 min-w-11 place-items-center rounded-full text-cream hover:bg-cream/8 lg:hidden"
-                        onClick={() => setMobileOpen((open) => !open)}
-                        aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
-                        aria-expanded={mobileOpen}
-                        aria-controls="mobile-navigation"
-                    >
-                        {mobileOpen ? <IconClose size={21} /> : <IconMenu size={21} />}
-                    </button>
+            <aside aria-label="Store announcement" className="relative z-50 border-b border-white/5 bg-carbon/80 py-2 px-4 text-center backdrop-blur-md">
+                <div className="mx-auto flex max-w-[1440px] items-center justify-center gap-3 text-xs tracking-wider text-gold-200/90">
+                    <span className="inline-block size-1.5 rounded-full bg-gold-400 animate-pulse" />
+                    <span className="font-medium">Luxury Crockery & Dinnerware Collections · Direct Store in Vengara, Malappuram · Express Shipping</span>
+                    <span className="hidden sm:inline text-gold-400/50">|</span>
+                    <a href="tel:+918138003232" className="hidden sm:inline font-semibold text-gold-300 hover:text-gold-100 transition-colors">Concierge: +91 81380 03232</a>
+                </div>
+            </aside>
 
-                    <Link to="/" className="min-w-0 shrink-0 leading-none text-cream" aria-label="Glockery Home Centre, Vengara">
-                        <span className="block text-base font-bold tracking-[0.18em] sm:text-lg">GLOCKERY</span>
-                        <span className="mt-1 block text-[7px] font-semibold uppercase tracking-[0.2em] text-cream/60 sm:text-[8px]">Home Centre · Vengara</span>
-                    </Link>
+            <header className="sticky top-0 z-40 border-b border-white/10 bg-obsidian/75 backdrop-blur-xl supports-[backdrop-filter]:bg-obsidian/60 transition-all duration-300">
+                <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-8 lg:h-[76px] lg:px-12">
+                    <div className="flex items-center gap-3">
+                        <button
+                            className="grid size-10 min-w-10 place-items-center rounded-full border border-white/10 bg-white/5 text-cream transition hover:border-gold-400/40 hover:bg-white/10 lg:hidden"
+                            onClick={() => setMobileOpen((open) => !open)}
+                            aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
+                            aria-expanded={mobileOpen}
+                            aria-controls="mobile-navigation"
+                        >
+                            {mobileOpen ? <IconClose size={20} /> : <IconMenu size={20} />}
+                        </button>
 
-                    <nav className="ml-10 hidden items-center gap-8 lg:flex" aria-label="Primary navigation">
-                        <NavLink exact to="/" className={navLink} activeClassName="text-gold-300">Shop</NavLink>
-                        <NavLink to="/search" className={navLink} activeClassName="text-gold-300">All products</NavLink>
-                        <NavLink to="/about" className={navLink} activeClassName="text-gold-300">About</NavLink>
+                        <Link to="/" className="group min-w-0 shrink-0 leading-none" aria-label="Glockery Home Centre, Vengara">
+                            <span className="block font-display text-xl font-bold tracking-[0.22em] text-cream transition group-hover:text-gold-200 sm:text-2xl">
+                                GLOCKERY
+                            </span>
+                            <span className="mt-1 block text-[7px] font-semibold uppercase tracking-[0.26em] text-gold-400/80 sm:text-[8px]">
+                                Home Centre · Vengara
+                            </span>
+                        </Link>
+                    </div>
+
+                    <nav className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] p-1.5 backdrop-blur-md lg:flex" aria-label="Primary navigation">
+                        <NavLink exact to="/" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30 shadow-[0_0_15px_-3px_rgba(201,163,91,0.25)]">Shop</NavLink>
+                        <NavLink to="/search" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30 shadow-[0_0_15px_-3px_rgba(201,163,91,0.25)]">All Products</NavLink>
+                        <NavLink to="/about" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30 shadow-[0_0_15px_-3px_rgba(201,163,91,0.25)]">About Us</NavLink>
                     </nav>
 
-                    <div className="ml-auto flex min-w-0 items-center gap-1">
-                        <button className="grid size-11 place-items-center text-cream/70 hover:text-cream" onClick={() => setSearchOpen(true)} aria-label="Search products">
-                            <IconSearch size={19} />
+                    <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+                        <button 
+                            className="grid size-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-cream/80 transition hover:border-gold-400/40 hover:bg-white/10 hover:text-cream"
+                            onClick={() => setSearchOpen(true)} 
+                            aria-label="Search products"
+                        >
+                            <IconSearch size={18} />
                         </button>
-                        <Link to="/wishlist" className="relative hidden min-w-11 place-items-center text-cream/70 hover:text-cream sm:grid" aria-label={`Wishlist with ${wishlistIds.length} items`}>
-                            <IconHeart size={19} />
+                        <Link 
+                            to="/wishlist" 
+                            className="relative hidden size-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-cream/80 transition hover:border-gold-400/40 hover:bg-white/10 hover:text-cream sm:grid" 
+                            aria-label={`Wishlist with ${wishlistIds.length} items`}
+                        >
+                            <IconHeart size={18} />
                             {wishlistIds.length > 0 && <span className="count-badge">{wishlistIds.length}</span>}
                         </Link>
-                        <Link to={accountPath} className="relative hidden min-w-11 place-items-center text-cream/70 hover:text-cream sm:grid" aria-label={accountLabel}>
-                            <IconUser size={19} />
+                        <Link 
+                            to={accountPath} 
+                            className="relative hidden size-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-cream/80 transition hover:border-gold-400/40 hover:bg-white/10 hover:text-cream sm:grid" 
+                            aria-label={accountLabel}
+                        >
+                            <IconUser size={18} />
                         </Link>
-                        <button onClick={openCart} className="relative ml-1 flex h-11 min-w-11 items-center gap-2 rounded-full px-2 text-cream hover:text-gold-300" aria-label={`Bag with ${itemCount} items`}>
-                            <IconShoppingBag size={19} />
-                            <span className="hidden text-sm sm:inline">Cart</span>
+                        <button 
+                            onClick={openCart} 
+                            className="relative flex h-10 items-center gap-2 rounded-full border border-gold-400/30 bg-gold-500/10 px-3.5 text-cream transition hover:border-gold-400/60 hover:bg-gold-500/20 hover:shadow-[0_0_20px_-3px_rgba(201,163,91,0.3)]" 
+                            aria-label={`Bag with ${itemCount} items`}
+                        >
+                            <IconShoppingBag size={18} className="text-gold-300" />
+                            <span className="hidden text-xs font-semibold uppercase tracking-wider text-cream/90 sm:inline">Cart</span>
                             {itemCount > 0 && <span className="count-badge">{itemCount > 99 ? '99+' : itemCount}</span>}
                         </button>
-                        <a className="relative ml-1 hidden h-11 min-w-11 items-center justify-center rounded-full px-2 text-cream hover:text-gold-300 sm:flex max-[480px]:hidden" href="tel:+918138003232">📞</a>
                         <a
-                            className="relative ml-1 hidden h-11 min-w-11 items-center justify-center rounded-full px-2 text-cream hover:text-gold-300 sm:flex max-[480px]:hidden"
+                            className="relative hidden size-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-cream/80 transition hover:border-gold-400/40 hover:bg-white/10 hover:text-cream sm:flex max-[480px]:hidden"
                             href="https://www.instagram.com/glockery_home_centre/"
                             target="_blank"
                             rel="noreferrer"
                             aria-label="Visit Instagram"
                         >
-                            <img src="/img/blackLogo.png" alt="Instagram" className="h-6 w-6 object-contain" />
+                            <img src="/img/blackLogo.png" alt="Instagram" className="h-5 w-5 object-contain invert" />
                         </a>
-                  
                     </div>
                 </div>
 
                 {mobileOpen && (
-                    <div className="border-t border-line bg-obsidian px-5 py-5 lg:hidden">
-                        <div className="grid gap-1 sm:grid-cols-3">
+                    <div className="border-t border-white/10 bg-obsidian/95 px-5 py-6 backdrop-blur-2xl lg:hidden">
+                        <div className="grid gap-2 sm:grid-cols-3">
                             <button
                                 onClick={triggerSearch}
-                                className="flex min-h-12 items-center justify-center rounded-xl border border-line text-sm text-cream/85 hover:border-gold-300 hover:text-gold-300"
+                                className="flex min-h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-sm font-medium text-cream/90 transition hover:border-gold-400/40 hover:bg-white/10"
                             >
-                                <span className="mr-2 flex items-center gap-2"><IconSearch size={17} /> Search</span>
+                                <span className="flex items-center gap-2"><IconSearch size={18} className="text-gold-300" /> Search</span>
                             </button>
                             <Link
                                 to="/wishlist"
                                 onClick={closeMobileMenu}
-                                className="relative flex min-h-12 items-center justify-center rounded-xl border border-line text-sm text-cream/85 hover:border-gold-300 hover:text-gold-300"
+                                className="relative flex min-h-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] text-sm font-medium text-cream/90 transition hover:border-gold-400/40 hover:bg-white/10"
                             >
-                                <span className="flex items-center gap-2"><IconHeart size={17} /> Wishlist</span>
+                                <span className="flex items-center gap-2"><IconHeart size={18} className="text-gold-300" /> Wishlist</span>
                                 {wishlistIds.length > 0 && <span className="count-badge">{wishlistIds.length}</span>}
                             </Link>
                             <button
@@ -115,60 +144,60 @@ const Header = () => {
                                     closeMobileMenu();
                                     openCart();
                                 }}
-                                className="relative flex min-h-12 items-center justify-center rounded-xl border border-line text-sm text-cream/85 hover:border-gold-300 hover:text-gold-300"
+                                className="relative flex min-h-12 items-center justify-center rounded-2xl border border-gold-400/30 bg-gold-500/10 text-sm font-semibold text-gold-200 transition hover:bg-gold-500/20"
                             >
-                                <span className="flex items-center gap-2"><IconShoppingBag size={17} /> Cart</span>
+                                <span className="flex items-center gap-2"><IconShoppingBag size={18} /> Cart</span>
                                 {itemCount > 0 && <span className="count-badge">{itemCount > 99 ? '99+' : itemCount}</span>}
                             </button>
                         </div>
 
-                        <nav id="mobile-navigation" className="mt-4" aria-label="Mobile navigation">
-                            <div className="flex flex-col">
+                        <nav id="mobile-navigation" className="mt-5" aria-label="Mobile navigation">
+                            <div className="flex flex-col gap-1">
                                 <NavLink
                                     exact
                                     to="/"
-                                    className="mb-1 flex min-h-12 items-center justify-between rounded-lg px-3 py-2 text-sm text-cream"
-                                    activeClassName="text-gold-300"
+                                    className="flex min-h-12 items-center justify-between rounded-xl px-4 py-2 text-sm font-medium text-cream transition hover:bg-white/5"
+                                    activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30"
                                     onClick={closeMobileMenu}
                                 >
-                                    <span className="flex items-center gap-2">
-                                        <IconHome size={17} />
-                                        Shop
+                                    <span className="flex items-center gap-3">
+                                        <IconHome size={18} />
+                                        Shop Home
                                     </span>
-                                    <span className="text-xs text-cream/40">{pathname === '/' ? 'Home' : 'All items'}</span>
+                                    <span className="text-xs text-gold-400/70">Explore</span>
                                 </NavLink>
                                 <NavLink
                                     to="/search"
-                                    className="mb-1 flex min-h-12 items-center gap-2 rounded-lg px-3 py-2 text-sm text-cream"
-                                    activeClassName="text-gold-300"
+                                    className="flex min-h-12 items-center gap-3 rounded-xl px-4 py-2 text-sm font-medium text-cream transition hover:bg-white/5"
+                                    activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30"
                                     onClick={closeMobileMenu}
                                 >
-                                    <IconSearch size={17} />
-                                    All products
+                                    <IconSearch size={18} />
+                                    All Collections
                                 </NavLink>
                                 <NavLink
                                     to="/about"
-                                    className="mb-1 flex min-h-12 items-center gap-2 rounded-lg px-3 py-2 text-sm text-cream"
-                                    activeClassName="text-gold-300"
+                                    className="flex min-h-12 items-center gap-3 rounded-xl px-4 py-2 text-sm font-medium text-cream transition hover:bg-white/5"
+                                    activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30"
                                     onClick={closeMobileMenu}
                                 >
-                                    <IconUser size={17} />
-                                    About
+                                    <IconUser size={18} />
+                                    About Glockery
                                 </NavLink>
                                 <NavLink
                                     to={accountPath}
-                                    className="mb-1 flex min-h-12 items-center gap-2 rounded-lg px-3 py-2 text-sm text-cream"
-                                    activeClassName="text-gold-300"
+                                    className="flex min-h-12 items-center gap-3 rounded-xl px-4 py-2 text-sm font-medium text-cream transition hover:bg-white/5"
+                                    activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30"
                                     onClick={closeMobileMenu}
                                 >
-                                    <IconUser size={17} />
+                                    <IconUser size={18} />
                                     {accountLabel}
                                 </NavLink>
                             </div>
                         </nav>
 
-                        <a href="tel:+918138003232" className="mt-4 inline-flex items-center gap-2 rounded-lg border border-line px-4 py-3 text-sm text-cream/80">
-                            Call us: +91 81380 03232
+                        <a href="tel:+918138003232" className="mt-5 flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] py-3.5 text-xs font-semibold tracking-wider uppercase text-gold-300">
+                            Call Direct: +91 81380 03232
                         </a>
                     </div>
                 )}

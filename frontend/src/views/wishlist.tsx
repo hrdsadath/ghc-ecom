@@ -5,6 +5,7 @@ import { Link } from '../lib/router';
 import Header from '../components/Header';
 import StoreFooter from '../components/StoreFooter';
 import ProductCard from '../components/ProductCard';
+import TrustBadges from '../components/TrustBadges';
 import { useWishlist } from '../contexts/WishlistContext';
 import { api } from '../lib/api';
 import { Product } from '../types';
@@ -29,33 +30,47 @@ const WishlistPage = () => {
     return (
         <div className="min-h-screen bg-obsidian text-cream flex flex-col justify-between font-body">
             <Header />
-            <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-16">
-                <header className="mb-12 border-y border-line py-9 sm:py-11">
-                    <span className="eyebrow">Wishlist</span>
-                    <h1 className="mt-2 font-display text-4xl font-semibold text-cream sm:text-5xl lg:text-7xl">Saved for later.</h1>
-                    <p className="mt-3 max-w-xl text-sm leading-relaxed text-cream/60">
-                        Keep the pieces that caught your eye close by. Your wishlist is stored securely on this device.
+            <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-12">
+                {/* Glass Wishlist Header */}
+                <header className="glass-panel relative mb-10 overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-10">
+                    <div className="pointer-events-none absolute -right-20 -top-20 size-80 rounded-full bg-gold-400/10 blur-3xl" />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                        Personal Sanctuary
+                    </span>
+                    <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl lg:text-6xl">
+                        Your Saved Pieces
+                    </h1>
+                    <p className="mt-3 max-w-xl text-xs sm:text-sm leading-relaxed text-cream/70">
+                        Keep the crockery, dinner sets, and kitchenware that caught your eye saved for your next order.
                     </p>
                 </header>
 
                 {loading ? (
-                    <div className="text-center py-20 text-cream/40 font-mono text-xs">Loading your edit…</div>
+                    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
+                        {Array.from({ length: 4 }).map((_, idx) => (
+                            <div key={idx} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                        ))}
+                    </div>
                 ) : !products.length ? (
-                    <div className="border border-line bg-carbon/45 py-20 text-center">
-                        <h2 className="font-display text-3xl font-semibold text-cream">Nothing saved yet.</h2>
-                        <p className="mt-3 text-xs text-cream/50">Start with a piece that makes the room feel different.</p>
-                        <Link to="/" className="button-primary mt-8">
-                            Explore collection
+                    <div className="glass-panel rounded-3xl py-16 text-center">
+                        <h2 className="font-display text-2xl font-semibold text-cream">Nothing saved yet</h2>
+                        <p className="mt-2 text-xs sm:text-sm text-cream/60">
+                            Explore our artisanal collections to discover pieces that transform your dining table.
+                        </p>
+                        <Link to="/" className="button-primary mx-auto mt-6 rounded-xl py-3 px-6 text-sm">
+                            Explore Collections
                         </Link>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8">
                         {products.map((product) => (
                             <ProductCard key={product.id} product={product} />
                         ))}
                     </div>
                 )}
             </main>
+
+            <TrustBadges />
             <StoreFooter />
         </div>
     );

@@ -7,6 +7,7 @@ import { IconSearch } from '../components/Icons';
 import Pagination from '../components/Pagination';
 import ProductCard from '../components/ProductCard';
 import StoreFooter from '../components/StoreFooter';
+import TrustBadges from '../components/TrustBadges';
 import { api } from '../lib/api';
 import { positivePage, SEARCH_PAGE_SIZE, searchRequestParams } from '../lib/search-params';
 import { Category, PaginatedProducts, Product } from '../types';
@@ -103,19 +104,25 @@ export const SearchPage = ({ initialData, initialRequest, initialCategories }: S
     };
 
     const resultLabel = loading
-        ? 'Loading products…'
-        : `${total} ${total === 1 ? 'product' : 'products'}`;
+        ? 'Searching catalog…'
+        : `Showing ${total} ${total === 1 ? 'item' : 'items'}`;
 
     return (
         <div className="flex min-h-screen flex-col bg-obsidian font-body text-cream">
             <Header />
-            <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-10 sm:px-8 lg:px-12 lg:py-16">
-                <div className="max-w-2xl">
-                    <h1 className="font-display text-4xl font-semibold tracking-[-0.02em] sm:text-5xl">
-                        {query ? 'Search results' : 'All products'}
+            <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-12">
+                {/* Search Bar Header Pavilion */}
+                <div className="glass-panel relative overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-10">
+                    <div className="pointer-events-none absolute -right-20 -top-20 size-80 rounded-full bg-gold-400/10 blur-3xl" />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                        Artisanal Catalog
+                    </span>
+                    <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight sm:text-5xl">
+                        {query ? `Search: "${query}"` : 'Explore All Collections'}
                     </h1>
-                    <form onSubmit={submitSearch} className="mt-7 flex min-h-12 items-center border-b border-line focus-within:border-gold-400" role="search">
-                        <IconSearch className="mr-3 shrink-0 text-cream/60" size={19} />
+
+                    <form onSubmit={submitSearch} className="mt-6 flex max-w-2xl items-center rounded-2xl border border-white/15 bg-white/5 px-4 py-1.5 backdrop-blur-md transition-all focus-within:border-gold-400/80 focus-within:shadow-[0_0_20px_rgba(212,175,55,0.25)]" role="search">
+                        <IconSearch className="mr-3 shrink-0 text-gold-300" size={18} />
                         <label htmlFor="catalogue-search" className="sr-only">Search products</label>
                         <input
                             id="catalogue-search"
@@ -125,54 +132,88 @@ export const SearchPage = ({ initialData, initialRequest, initialCategories }: S
                             autoComplete="off"
                             value={draftQuery}
                             onChange={(event) => setDraftQuery(event.target.value)}
-                            placeholder="Search products"
-                            className="min-w-0 flex-1 bg-transparent py-3 text-base text-cream outline-none"
+                            placeholder="Search by dinner set, cups, canisters, plates…"
+                            className="min-w-0 flex-1 bg-transparent py-2.5 text-sm sm:text-base text-cream placeholder-cream/40 outline-none"
                         />
-                        <button type="submit" className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-gold-300">Search</button>
+                        <button type="submit" className="button-primary rounded-xl px-4 py-2 text-xs font-semibold">
+                            Search
+                        </button>
                     </form>
                 </div>
 
-                <div className="mt-10 flex flex-col gap-4 border-y border-line bg-carbon/20 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-cream/65" aria-live="polite">{resultLabel}</p>
-                    <label>
-                        <span className="sr-only">Category</span>
+                {/* Filter and Count Bar */}
+                <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:flex-row sm:items-center sm:justify-between backdrop-blur-md">
+                    <p className="text-xs sm:text-sm text-cream/70" aria-live="polite">
+                        {resultLabel}
+                    </p>
+                    <label className="flex items-center gap-3">
+                        <span className="text-xs uppercase tracking-wider text-cream/50">Filter:</span>
                         <select
                             value={selectedCategory}
                             onChange={(event) => updateUrl({ category: event.target.value, page: '' })}
-                            className="field w-full min-w-0 text-sm sm:w-52"
+                            className="glass-pill rounded-xl px-3.5 py-2 text-xs sm:text-sm text-cream outline-none border-white/10 bg-obsidian/80 cursor-pointer"
                         >
-                            <option value="">All categories</option>
-                            {categories.map((category) => <option key={category.id} value={category.slug}>{category.name}</option>)}
+                            <option value="">All Categories</option>
+                            {categories.map((category) => (
+                                <option key={category.id} value={category.slug} className="bg-obsidian text-cream">
+                                    {category.name}
+                                </option>
+                            ))}
                         </select>
                     </label>
                 </div>
 
                 {error ? (
-                    <div className="mt-10 border border-red-500/30 bg-red-950/20 p-6 text-sm text-red-200" role="alert">
+                    <div className="glass-panel mt-8 rounded-2xl border-red-500/30 p-8 text-center text-sm text-red-200" role="alert">
                         <p>{error}</p>
-                        <button type="button" onClick={() => setRetryKey((value) => value + 1)} className="mt-3 font-bold text-gold-300 underline underline-offset-4">Retry</button>
+                        <button
+                            type="button"
+                            onClick={() => setRetryKey((value) => value + 1)}
+                            className="glass-pill mt-4 rounded-xl px-5 py-2 text-xs font-semibold text-gold-300 hover:text-white"
+                        >
+                            Retry Loading
+                        </button>
                     </div>
                 ) : loading ? (
-                    <div className="mt-10 grid grid-cols-2 gap-x-4 gap-y-10 lg:grid-cols-4" aria-label="Loading products">
-                        {Array.from({ length: 8 }).map((_, index) => <div key={index} className="aspect-[4/5] animate-pulse bg-panel" />)}
+                    <div className="mt-8 grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4" aria-label="Loading products">
+                        {Array.from({ length: 8 }).map((_, index) => (
+                            <div key={index} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                        ))}
                     </div>
                 ) : products.length ? (
                     <>
-                        <div className="mt-10 grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 lg:grid-cols-4 lg:gap-y-14">
-                            {products.map((product) => <ProductCard key={product.id} product={product} />)}
+                        <div className="mt-8 grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8">
+                            {products.map((product) => (
+                                <ProductCard key={product.id} product={product} />
+                            ))}
                         </div>
-                        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={(page) => {
-                            updateUrl({ page: page === 1 ? '' : String(page) });
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }} />
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            onPageChange={(page) => {
+                                updateUrl({ page: page === 1 ? '' : String(page) });
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                        />
                     </>
                 ) : (
-                    <div className="mt-10 border-y border-line bg-carbon/45 py-16 text-center">
-                        <h2 className="font-display text-3xl text-cream">No products found.</h2>
-                        <p className="mt-2 text-sm text-cream/65">Try a different search or category.</p>
+                    <div className="glass-panel mt-8 rounded-3xl py-16 text-center">
+                        <h2 className="font-display text-2xl font-semibold text-cream">No products matched your search.</h2>
+                        <p className="mt-2 text-xs sm:text-sm text-cream/65">Try checking for spelling or choosing another category.</p>
+                        <button
+                            onClick={() => {
+                                setDraftQuery('');
+                                updateUrl({ q: '', category: '', page: '' });
+                            }}
+                            className="button-primary mx-auto mt-6 rounded-xl py-3 px-6 text-sm"
+                        >
+                            Clear Filters & View All
+                        </button>
                     </div>
                 )}
             </main>
+
+            <TrustBadges />
             <StoreFooter />
         </div>
     );

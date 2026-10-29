@@ -156,53 +156,56 @@ export const PaymentResultPage = () => {
     const failed = status === 'failed';
 
     return (
-        <div className="min-h-screen bg-obsidian text-cream flex flex-col justify-between font-body">
+        <div className="relative flex min-h-screen flex-col justify-between overflow-hidden bg-obsidian font-body text-cream">
+            {/* Ambient Background Glow Orbs */}
+            <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-96 w-96 -translate-x-1/2 rounded-full bg-gold-400/10 blur-[130px]" />
+
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-2xl flex-1 px-4 py-12 sm:px-8 lg:py-16">
                 {status === 'checking' ? (
-                    <div className="border border-line bg-carbon p-8 text-center sm:p-12" role="status" aria-live="polite">
-                        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-gold-400/10 text-gold-300">
-                            <IconRefresh size={28} className="animate-spin" />
+                    <div className="glass-panel-elevated rounded-3xl p-8 text-center sm:p-12" role="status" aria-live="polite">
+                        <div className="mx-auto flex size-16 items-center justify-center rounded-2xl border border-gold-400/30 bg-gold-400/10 text-gold-300 shadow-[0_0_20px_rgba(201,163,91,0.15)]">
+                            <IconRefresh size={30} className="animate-spin text-gold-400" />
                         </div>
-                        <h1 className="mt-5 font-display text-3xl">Confirming your payment</h1>
-                        <p className="mt-3 text-xs text-cream/60">
+                        <h1 className="mt-6 font-display text-3xl font-semibold text-cream">Confirming your payment</h1>
+                        <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-cream/60">
                             We are waiting for your bank to confirm the transaction. Please do not close this page or pay again.
                         </p>
                     </div>
                 ) : failed ? (
-                    <div className="border border-amber-500/30 bg-amber-950/20 p-8 text-center sm:p-12">
-                        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-amber-400/10 text-amber-300">
-                            <IconAlert size={28} />
+                    <div className="glass-panel-elevated rounded-3xl border-amber-500/30 bg-amber-950/20 p-8 text-center sm:p-12">
+                        <div className="mx-auto flex size-16 items-center justify-center rounded-2xl border border-amber-500/40 bg-amber-500/10 text-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.2)]">
+                            <IconAlert size={30} />
                         </div>
-                        <h1 className="mt-5 font-display text-3xl text-amber-200">Payment not completed</h1>
-                        <p className="mt-3 text-xs text-cream/60">
+                        <h1 className="mt-6 font-display text-3xl font-semibold text-amber-200">Payment not completed</h1>
+                        <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-cream/65">
                             Your bank did not confirm this payment and nothing has been charged. Your bag has been kept so you can try again.
                         </p>
                         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
                             <Link to="/checkout" className="button-primary h-12 px-6">Retry payment</Link>
-                            <Link to="/cart" className="inline-flex h-12 items-center justify-center border border-line px-6 text-xs font-bold uppercase tracking-[0.14em] text-cream/70">Review bag</Link>
+                            <Link to="/cart" className="button-secondary h-12 px-6">Review bag</Link>
                         </div>
                     </div>
                 ) : (
-                    <div className="border border-line bg-carbon p-8 text-center sm:p-12">
-                        <h1 className="font-display text-3xl">Payment confirmation pending</h1>
-                        <p className="mt-3 text-xs text-cream/60">
+                    <div className="glass-panel-elevated rounded-3xl p-8 text-center sm:p-12">
+                        <h1 className="font-display text-3xl font-semibold text-cream">Payment confirmation pending</h1>
+                        <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-cream/65">
                             Your bank has not sent the final confirmation yet. If money was debited, the order will be confirmed automatically
                             once the bank responds — you do not need to pay again.
                         </p>
                         {autoChecking && (
-                        <p className="mt-3 inline-flex items-center gap-2 text-[11px] text-cream/45" role="status" aria-live="polite">
-                            <IconRefresh size={12} className="animate-spin" /> Still checking automatically — this page updates on its own.
-                        </p>
+                            <p className="glass-pill mt-4 inline-flex items-center gap-2 border-white/10 bg-white/[0.04] px-4 py-1.5 text-[11px] text-cream/55" role="status" aria-live="polite">
+                                <IconRefresh size={12} className="animate-spin text-gold-400" /> Still checking automatically — this page updates on its own.
+                            </p>
                         )}
-                        {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
+                        {error && <p className="mt-4 rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-300">{error}</p>}
                         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
                             {lookup && (
                                 <button type="button" onClick={retry} className="button-primary h-12 px-6 gap-2">
                                     <IconRefresh size={16} /> Check again
                                 </button>
                             )}
-                            <Link to="/order-lookup" className="inline-flex h-12 items-center justify-center border border-line px-6 text-xs font-bold uppercase tracking-[0.14em] text-cream/70">Track my order</Link>
+                            <Link to="/order-lookup" className="button-secondary h-12 px-6">Track my order</Link>
                         </div>
                     </div>
                 )}

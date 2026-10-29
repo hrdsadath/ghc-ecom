@@ -36,7 +36,7 @@ const nextConfig = {
     qualities: [75],
     maximumRedirects: 0,
     maximumResponseBody: 8 * 1024 * 1024,
-    dangerouslyAllowLocalIP: false,
+    dangerouslyAllowLocalIP: process.env.NODE_ENV !== 'production',
     remotePatterns: imageOrigin
       ? [
           {

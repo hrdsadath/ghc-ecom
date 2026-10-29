@@ -45,22 +45,25 @@ export const ErrorPage: React.FC<ErrorPageProps> = ({
     }[code];
 
     return (
-        <div className="min-h-screen bg-obsidian text-cream flex flex-col justify-between">
+        <div className="relative flex min-h-screen flex-col justify-between overflow-hidden bg-obsidian font-body text-cream">
+            {/* Ambient Background Glow Orbs */}
+            <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-96 w-96 -translate-x-1/2 rounded-full bg-gold-400/10 blur-[130px]" />
+
             <Header />
             <main id="main-content" className="flex flex-1 items-center justify-center px-6 py-20">
-                <div className="w-full max-w-lg border border-line bg-carbon p-8 text-center sm:p-10">
-                    <div className="mx-auto flex size-20 items-center justify-center border border-gold-500/30 bg-gold-500/10">
+                <div className="glass-panel-elevated w-full max-w-lg rounded-3xl p-8 text-center sm:p-12">
+                    <div className="mx-auto flex size-20 items-center justify-center rounded-3xl border border-gold-400/30 bg-gold-400/10 text-gold-400 shadow-[0_0_25px_rgba(201,163,91,0.15)]">
                         {errorDetails.icon}
                     </div>
-                    <span className="mt-6 block font-mono text-xs font-bold uppercase tracking-[0.3em] text-gold-400">
+                    <span className="glass-pill mt-6 inline-block border-gold-400/30 bg-gold-400/10 px-3.5 py-1 font-mono text-xs font-bold uppercase tracking-[0.24em] text-gold-400">
                         HTTP Error {code}
                     </span>
-                    <h1 className="mt-2 font-display text-4xl font-semibold text-cream sm:text-5xl">{errorDetails.title}</h1>
-                    <p className="mt-3 text-xs leading-relaxed text-cream/60">{errorDetails.desc}</p>
+                    <h1 className="mt-3 font-display text-4xl font-semibold text-cream sm:text-5xl">{errorDetails.title}</h1>
+                    <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-cream/65">{errorDetails.desc}</p>
                     <div className="mt-8">
                         <Link
                             to={errorDetails.action.href}
-                            className="button-primary"
+                            className="button-primary inline-block"
                         >
                             {errorDetails.action.label}
                         </Link>

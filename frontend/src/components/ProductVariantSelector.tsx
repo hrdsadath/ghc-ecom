@@ -18,9 +18,9 @@ interface ProductVariantSelectorProps {
 }
 
 const dimensionName: Record<VariantDimension, string> = {
-    color: "Colour",
-    size: "Size",
-    packQuantity: "Pack",
+    color: "Colour Palette",
+    size: "Size & Dimensions",
+    packQuantity: "Set Pack",
 };
 
 const matchingVariant = (product: Product, selected: ProductVariant, dimension: VariantDimension, value: string): ProductVariant | undefined => {
@@ -43,12 +43,12 @@ const ProductVariantSelector: React.FC<ProductVariantSelectorProps> = ({ product
         if (product.variants.length === 1) return null;
         return (
             <fieldset className={compact ? "mt-5" : "mt-6"}>
-                <legend className="mb-3 text-sm font-semibold text-cream">Option</legend>
-                <div className="flex flex-wrap gap-2">
+                <legend className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-gold-400/90">Option</legend>
+                <div className="flex flex-wrap gap-2.5">
                     {product.variants.map((variant) => {
                         const unavailable = !variant.isActive || variant.availableStock <= 0;
                         return (
-                            <label key={variant.id} className={unavailable ? "cursor-not-allowed opacity-45" : "cursor-pointer"}>
+                            <label key={variant.id} className={unavailable ? "cursor-not-allowed opacity-40" : "cursor-pointer"}>
                                 <input
                                     className="peer sr-only"
                                     type="radio"
@@ -57,9 +57,9 @@ const ProductVariantSelector: React.FC<ProductVariantSelectorProps> = ({ product
                                     disabled={unavailable}
                                     onChange={() => onSelect(variant.id)}
                                 />
-                                <span className="flex min-h-11 items-center border px-4 text-sm text-cream/70 peer-checked:border-gold-400 peer-checked:bg-gold-400/10 peer-checked:text-cream peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-gold-300">
+                                <span className="glass-pill flex min-h-11 items-center rounded-xl px-4 text-xs sm:text-sm font-medium text-cream/70 transition-all hover:border-white/30 peer-checked:border-gold-400/80 peer-checked:bg-gold-400/20 peer-checked:text-gold-200 peer-checked:shadow-[0_0_15px_rgba(212,175,55,0.25)]">
                                     {variantOptionLabel(variant)}
-                                    {unavailable ? " — Out of stock" : ""}
+                                    {unavailable ? " (Sold Out)" : ""}
                                 </span>
                             </label>
                         );
@@ -70,7 +70,7 @@ const ProductVariantSelector: React.FC<ProductVariantSelectorProps> = ({ product
     }
 
     return (
-        <div className={compact ? "mt-5 space-y-5" : "mt-6 space-y-5"}>
+        <div className={compact ? "mt-5 space-y-5" : "mt-6 space-y-6"}>
             {dimensions.map((dimension) => {
                 const values = [
                     ...new Set(
@@ -83,18 +83,20 @@ const ProductVariantSelector: React.FC<ProductVariantSelectorProps> = ({ product
                 const selectedValue = variantDimensionValue(selected, dimension);
                 return (
                     <fieldset key={dimension}>
-                        <legend className="mb-3 text-sm font-semibold text-cream">
+                        <legend className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-gold-400/90">
                             {dimensionName[dimension]}:{" "}
-                            <span className="font-normal text-cream/70">{selectedValue ? variantDimensionLabel(dimension, selectedValue) : "Choose"}</span>
+                            <span className="font-normal normal-case tracking-normal text-cream/90">
+                                {selectedValue ? variantDimensionLabel(dimension, selectedValue) : "Choose"}
+                            </span>
                         </legend>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2.5">
                             {values.map((value) => {
                                 const candidate = matchingVariant(product, selected, dimension, value);
                                 const unavailable = !candidate || candidate.availableStock <= 0;
                                 const image = dimension === "color" && candidate ? primaryImageForVariant(product, candidate) : undefined;
                                 const colorHex = dimension === "color" && candidate ? variantColorHex(candidate) : undefined;
                                 return (
-                                    <label key={value} className={unavailable ? "cursor-not-allowed opacity-45" : "cursor-pointer"}>
+                                    <label key={value} className={unavailable ? "cursor-not-allowed opacity-40" : "cursor-pointer"}>
                                         <input
                                             className="peer sr-only"
                                             type="radio"
@@ -105,16 +107,18 @@ const ProductVariantSelector: React.FC<ProductVariantSelectorProps> = ({ product
                                             onChange={() => candidate && onSelect(candidate.id)}
                                         />
                                         <span
-                                            className={`flex min-h-12 items-center gap-2 border px-3 text-sm text-cream/70 transition-colors hover:border-cream/40 hover:text-cream peer-checked:border-gold-400 peer-checked:bg-gold-400/10 peer-checked:text-cream peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-gold-300 ${compact ? "" : "sm:px-4"}`}
+                                            className={`glass-pill flex min-h-12 items-center gap-2.5 rounded-xl px-3.5 text-xs sm:text-sm font-medium text-cream/70 transition-all hover:border-white/30 peer-checked:border-gold-400/80 peer-checked:bg-gold-400/20 peer-checked:text-gold-200 peer-checked:shadow-[0_0_15px_rgba(212,175,55,0.25)] ${
+                                                compact ? "" : "sm:px-4"
+                                            }`}
                                         >
                                             {image ? (
-                                                <img loading="lazy" decoding="async" src={image.thumbnailUrl} alt="" className="size-8 shrink-0 bg-panel object-contain" />
+                                                <img loading="lazy" decoding="async" src={image.thumbnailUrl} alt="" className="size-7 shrink-0 rounded-lg bg-obsidian/60 object-contain p-0.5 border border-white/10" />
                                             ) : colorHex ? (
-                                                <span className="size-6 shrink-0 rounded-full border border-cream/25" style={{ backgroundColor: colorHex }} aria-hidden="true" />
+                                                <span className="size-5 shrink-0 rounded-full border border-white/20 shadow-sm" style={{ backgroundColor: colorHex }} aria-hidden="true" />
                                             ) : null}
                                             <span>
                                                 {variantDimensionLabel(dimension, value)}
-                                                {unavailable ? " — Out of stock" : ""}
+                                                {unavailable ? " (Sold Out)" : ""}
                                             </span>
                                         </span>
                                     </label>

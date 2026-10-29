@@ -2,18 +2,39 @@ import React from 'react';
 import { IconAward, IconCheckCircle, IconShieldCheck } from './Icons';
 
 const TrustBadges = () => (
-    <section className="border-y border-line bg-obsidian" aria-label="Shopping assurances">
-        <div className="mx-auto grid max-w-[1440px] divide-y divide-line px-4 sm:grid-cols-3 sm:divide-x sm:divide-y-0 sm:px-8 lg:px-12">
+    <section className="mx-auto max-w-[1440px] px-4 py-8 sm:px-8 lg:px-12" aria-label="Shopping assurances">
+        <div className="grid gap-4 sm:grid-cols-3 sm:gap-6">
             {[
-                [<IconAward size={20} className="shrink-0 text-gold-400" />, 'Crockery & kitchenware', 'Dinner sets, tea sets, canisters, serving dishes and more'],
-                [<IconCheckCircle size={20} className="shrink-0 text-gold-400" />, 'Carefully packed', 'Every piece is checked before your order is confirmed'],
-                [<IconShieldCheck size={20} className="shrink-0 text-gold-400" />, 'Secure checkout', 'Server-verified payments powered by HDFC Bank'],
-            ].map(([icon, title, copy]) => (
-                <article key={String(title)} className="flex min-h-32 items-start gap-4 py-7 sm:px-7">
-                    <span className="grid size-10 shrink-0 place-items-center border border-line">{icon}</span>
+                {
+                    icon: <IconAward size={22} className="text-gold-300" />,
+                    title: 'Artisanal & Kitchenware',
+                    copy: 'Fine bone china, porcelain dinner sets, canisters & decorative servers.',
+                },
+                {
+                    icon: <IconCheckCircle size={22} className="text-gold-300" />,
+                    title: 'Safe Transit Packaging',
+                    copy: 'Multi-layer bubble wrap & shock-absorbent cushioning for zero breakage.',
+                },
+                {
+                    icon: <IconShieldCheck size={22} className="text-gold-300" />,
+                    title: 'Verified Secure Checkout',
+                    copy: '100% encrypted, direct payment gateway backed by HDFC Bank.',
+                },
+            ].map(({ icon, title, copy }, index) => (
+                <article
+                    key={index}
+                    className="glass-card group relative flex items-start gap-4 rounded-2xl p-5 sm:p-6 transition-all duration-300 hover:-translate-y-0.5 hover:border-gold-400/40 hover:shadow-[0_12px_30px_rgba(212,175,55,0.12)]"
+                >
+                    <div className="glass-pill grid size-12 shrink-0 place-items-center rounded-xl border-gold-400/30 bg-gold-400/10 shadow-[0_0_15px_rgba(212,175,55,0.15)] group-hover:scale-105 group-hover:border-gold-400/60 transition-transform">
+                        {icon}
+                    </div>
                     <div>
-                        <h3 className="text-xs font-bold uppercase tracking-[0.12em] text-cream">{title}</h3>
-                        <p className="mt-2 text-xs leading-5 text-cream/45">{copy}</p>
+                        <h3 className="font-display text-sm font-semibold tracking-wide text-cream/95">
+                            {title}
+                        </h3>
+                        <p className="mt-1.5 text-xs leading-relaxed text-cream/60">
+                            {copy}
+                        </p>
                     </div>
                 </article>
             ))}

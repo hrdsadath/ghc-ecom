@@ -6,6 +6,7 @@ import Header from '../components/Header';
 import Pagination from '../components/Pagination';
 import ProductCard from '../components/ProductCard';
 import StoreFooter from '../components/StoreFooter';
+import TrustBadges from '../components/TrustBadges';
 import { api } from '../lib/api';
 import { titleCase } from '../lib/commerce';
 import { PaginatedProducts, Product } from '../types';
@@ -77,48 +78,70 @@ const CategoryPage = ({ initialData, initialCategoryId, initialPage }: CategoryP
         <div className="flex min-h-screen flex-col justify-between bg-obsidian font-body text-cream">
             <Header />
 
-            <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-10 sm:px-8 lg:px-12 lg:py-16">
-                <nav className="mb-8 text-sm text-cream/60">
-                    <Link className="hover:text-cream" to="/">Shop</Link>
-                    <span className="mx-2" aria-hidden="true">/</span>
-                    <span className="text-cream">{categoryTitle}</span>
+            <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-12">
+                {/* Breadcrumbs */}
+                <nav className="mb-6 flex items-center gap-2 text-xs sm:text-sm text-cream/60">
+                    <Link className="hover:text-gold-200 transition" to="/">Home</Link>
+                    <span className="text-white/20" aria-hidden="true">/</span>
+                    <span className="text-cream/90 font-medium">{categoryTitle}</span>
                 </nav>
 
-                <header className="mb-10 border-b border-line pb-7">
-                    <p className="eyebrow">Collection</p>
-                    <h1 className="mt-2 font-display text-4xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl lg:text-6xl">{categoryTitle}</h1>
-                    <p className="mt-2 text-sm text-cream/65" aria-live="polite">
-                        {loading ? 'Loading products…' : `${total} ${total === 1 ? 'product' : 'products'}`}
+                {/* Glass Category Hero Header */}
+                <header className="glass-panel relative mb-10 overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-10">
+                    <div className="pointer-events-none absolute -right-16 -top-16 size-80 rounded-full bg-gold-400/10 blur-3xl" />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                        Curated Collection
+                    </span>
+                    <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl lg:text-6xl">
+                        {categoryTitle}
+                    </h1>
+                    <p className="mt-3 text-xs sm:text-sm text-cream/65" aria-live="polite">
+                        {loading ? 'Curating collection…' : `Showing ${total} ${total === 1 ? 'curated item' : 'curated items'}`}
                     </p>
                 </header>
 
                 {error ? (
-                    <div className="surface rounded-sm border-red-500/30 p-6 text-sm text-red-200" role="alert">
+                    <div className="glass-panel rounded-2xl border-red-500/30 p-8 text-center text-sm text-red-200" role="alert">
                         <p>{error}</p>
-                        <button type="button" onClick={() => setRetryKey((value) => value + 1)} className="mt-3 font-bold text-gold-300 underline underline-offset-4">Retry</button>
+                        <button
+                            type="button"
+                            onClick={() => setRetryKey((value) => value + 1)}
+                            className="glass-pill mt-4 rounded-xl px-5 py-2 text-xs font-semibold text-gold-300 hover:text-white"
+                        >
+                            Retry Loading
+                        </button>
                     </div>
                 ) : loading ? (
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-10 lg:grid-cols-4">
-                        {Array.from({ length: 8 }).map((_, idx) => <div key={idx} className="aspect-[4/5] animate-pulse bg-panel" />)}
+                    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
+                        {Array.from({ length: 8 }).map((_, idx) => (
+                            <div key={idx} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                        ))}
                     </div>
                 ) : products.length === 0 ? (
-                    <div className="surface rounded-sm border-y border-line bg-carbon/45 py-16 text-center">
-                        <h2 className="font-display text-3xl font-semibold text-cream">No products found.</h2>
-                        <Link to="/" className="button-secondary mt-5">Return to shop</Link>
+                    <div className="glass-panel rounded-3xl py-16 text-center">
+                        <h2 className="font-display text-2xl font-semibold text-cream">No products found in this collection.</h2>
+                        <Link to="/" className="button-primary mx-auto mt-6 rounded-xl py-3 px-6 text-sm">
+                            Return to All Collections
+                        </Link>
                     </div>
                 ) : (
                     <>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 lg:grid-cols-4 lg:gap-y-14">
+                        <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8">
                             {products.map((product) => <ProductCard key={product.id} product={product} />)}
                         </div>
-                        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={(page) => {
-                            history.push(`/category/${categoryId}${page === 1 ? '' : `?page=${page}`}`);
-                            window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }} />
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            onPageChange={(page) => {
+                                history.push(`/category/${categoryId}${page === 1 ? '' : `?page=${page}`}`);
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }}
+                        />
                     </>
                 )}
             </main>
 
+            <TrustBadges />
             <StoreFooter />
         </div>
     );

@@ -29,8 +29,8 @@ const ReelEmbed = ({ reel }: { reel: typeof reels[number] }) => {
     }, []);
 
     return (
-        <article ref={cardRef} className="w-[82vw] max-w-[320px] shrink-0 snap-start bg-black">
-            <div className="relative aspect-[4/5] overflow-hidden bg-black">
+        <article ref={cardRef} className="glass-card group w-[82vw] max-w-[320px] shrink-0 snap-start overflow-hidden rounded-2xl p-2.5 transition-all duration-300 hover:border-gold-400/40">
+            <div className="relative aspect-[4/5] overflow-hidden rounded-xl bg-black">
                 {shouldLoad && (
                     <iframe
                         src={`https://www.instagram.com/reel/${reel.id}/embed/`}
@@ -57,15 +57,30 @@ const InstagramReels = () => {
     };
 
     return (
-        <section id="instagram" className="border-y border-line bg-carbon py-14 lg:py-20" aria-labelledby="reels-heading">
-            <div className="mx-auto max-w-[1440px] px-4 sm:px-8 lg:px-12">
+        <section id="instagram" className="mx-auto max-w-[1440px] px-4 py-14 sm:px-8 lg:px-12 lg:py-20" aria-labelledby="reels-heading">
+            <div className="glass-panel rounded-3xl p-6 sm:p-10">
                 <header className="mb-8 flex items-end justify-between gap-6">
-                    <h2 id="reels-heading" className="font-display text-4xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">See what’s new in store</h2>
-                    <div className="hidden shrink-0 items-center gap-2 sm:flex">
-                        <button onClick={() => move(-1)} className="grid size-11 place-items-center border border-line text-cream/70 hover:border-gold-400 hover:text-cream" aria-label="Show previous Instagram reels">
+                    <div>
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                            Social Showcase
+                        </span>
+                        <h2 id="reels-heading" className="mt-1 font-display text-3xl font-semibold tracking-tight text-cream sm:text-4xl">
+                            Curated In-Store Highlights
+                        </h2>
+                    </div>
+                    <div className="hidden shrink-0 items-center gap-3 sm:flex">
+                        <button
+                            onClick={() => move(-1)}
+                            className="glass-pill grid size-11 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-400/50 hover:text-gold-200"
+                            aria-label="Show previous Instagram reels"
+                        >
                             <IconChevronLeft size={18} />
                         </button>
-                        <button onClick={() => move(1)} className="grid size-11 place-items-center border border-line text-cream/70 hover:border-gold-400 hover:text-cream" aria-label="Show more Instagram reels">
+                        <button
+                            onClick={() => move(1)}
+                            className="glass-pill grid size-11 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-400/50 hover:text-gold-200"
+                            aria-label="Show more Instagram reels"
+                        >
                             <IconChevronRight size={18} />
                         </button>
                     </div>

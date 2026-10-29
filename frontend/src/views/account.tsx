@@ -24,8 +24,8 @@ import { fallbackImage, rupees, shortDate, titleCase } from '../lib/commerce';
 import { openTrustedUrlFrom } from '../lib/navigation';
 import { Address, Order, Product, Profile } from '../types';
 
-const panel = 'border border-gold-500/20 bg-carbon p-6 rounded-sm shadow-md';
-const input = 'h-11 w-full border border-gold-500/25 bg-obsidian px-4 text-xs text-cream outline-none focus:border-gold-400 rounded-sm transition';
+const panel = 'glass-card p-6 md:p-8 rounded-3xl';
+const input = 'h-12 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-xs text-cream placeholder-cream/30 backdrop-blur-xl outline-none transition focus:border-gold-400/50 focus:bg-white/[0.08] focus:ring-1 focus:ring-gold-400/30';
 
 const OrdersView = () => {
     const [orders, setOrders] = useState<Order[]>([]);
@@ -49,39 +49,39 @@ const OrdersView = () => {
 
     return (
         <AccountShell title="Order History" intro="Every order, payment status, invoice, and return detail stored securely in your account.">
-            {error && <p className="border border-red-500/30 p-4 text-xs text-red-200 rounded-sm mb-4">{error}</p>}
+            {error && <p className="mb-4 rounded-2xl border border-red-500/30 bg-red-950/20 p-4 text-xs text-red-200 backdrop-blur-xl">{error}</p>}
             {loading ? (
                 <div className="space-y-4">
                     {Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="h-28 animate-pulse rounded-sm bg-carbon border border-gold-500/15" />
+                        <div key={i} className="h-28 animate-pulse rounded-3xl glass-card" />
                     ))}
                 </div>
             ) : !orders.length ? (
                 <div className={`${panel} py-16 text-center`}>
-                    <div className="mx-auto grid size-14 place-items-center rounded-full border border-gold-500/20 bg-obsidian text-gold-400 mb-4">
-                        <IconPackage size={24} />
+                    <div className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl border border-gold-400/25 bg-gold-400/10 text-gold-400 shadow-[0_0_20px_rgba(201,163,91,0.15)]">
+                        <IconPackage size={26} />
                     </div>
                     <h3 className="font-display text-2xl font-bold text-cream">No Orders Placed Yet</h3>
-                    <p className="mx-auto mt-2 max-w-sm text-xs text-cream/60">Explore crockery and kitchenware from our Vengara store.</p>
-                    <Link to="/" className="mt-6 inline-flex items-center gap-2 rounded-sm bg-gold-400 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-obsidian shadow-md hover:bg-gold-300 transition">
+                    <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-cream/55">Explore crockery and kitchenware from our Vengara store.</p>
+                    <Link to="/" className="button-primary mt-6 inline-flex items-center gap-2">
                         Explore Collection <IconArrowRight size={15} />
                     </Link>
                 </div>
             ) : (
                 <div className="space-y-4">
                     {orders.map((order) => (
-                        <article key={order.id} className={`${panel} grid gap-5 sm:grid-cols-[84px_1fr_auto] sm:items-center hover:border-gold-400/40 transition`}>
+                        <article key={order.id} className={`${panel} grid gap-5 sm:grid-cols-[84px_1fr_auto] sm:items-center hover:border-gold-400/40 transition group`}>
                             <img
                                 loading="lazy"
                                 decoding="async"
                                 src={order.itemsSnapshot?.[0]?.imageUrl || fallbackImage}
                                 alt=""
-                                className="aspect-square w-20 object-contain rounded-sm border border-gold-500/20 bg-obsidian"
+                                className="aspect-square w-20 rounded-2xl border border-white/10 bg-white/[0.03] p-1.5 object-contain"
                                 onError={(e) => { e.currentTarget.src = fallbackImage; }}
                             />
                             <div>
                                 <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.18em]">
-                                    <span className="font-bold text-gold-400 bg-gold-400/10 px-2 py-0.5 rounded-sm border border-gold-400/30">
+                                    <span className="glass-pill border-gold-400/30 bg-gold-400/10 px-2.5 py-0.5 font-bold text-gold-400">
                                         {titleCase(order.status)}
                                     </span>
                                     <span className="text-cream/40">• Placed {shortDate(order.createdAt)}</span>
@@ -89,14 +89,14 @@ const OrdersView = () => {
                                 <h3 className="mt-2 font-display text-xl font-bold text-cream">
                                     {order.itemsSnapshot?.[0]?.productName || 'Glockery Order'}
                                 </h3>
-                                <p className="mt-1 text-xs text-cream/50 font-mono">
-                                    Ref: {order.orderNumber} • <span className="text-gold-300 font-sans font-semibold">{rupees(order.totalPaise)}</span>
+                                <p className="mt-1 font-mono text-xs text-cream/50">
+                                    Ref: {order.orderNumber} • <span className="font-sans font-semibold text-gold-300">{rupees(order.totalPaise)}</span>
                                 </p>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={() => handleInvoiceDownload(order.id)}
-                                    className="p-2.5 text-gold-300 border border-gold-500/25 rounded-sm hover:border-gold-400 hover:bg-gold-400 hover:text-obsidian transition bg-obsidian"
+                                    className="rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-gold-300 transition hover:border-gold-400/50 hover:bg-gold-400/10 hover:text-gold-200"
                                     title="Download Invoice"
                                     aria-label="Download Invoice"
                                 >
@@ -104,7 +104,7 @@ const OrdersView = () => {
                                 </button>
                                 <Link
                                     to={`/account/orders/${order.id}`}
-                                    className="grid size-10 place-items-center border border-gold-500/25 text-gold-300 hover:border-gold-400 hover:bg-gold-400 hover:text-obsidian transition rounded-sm bg-obsidian"
+                                    className="grid size-10 place-items-center rounded-xl border border-white/10 bg-white/[0.04] text-gold-300 transition hover:border-gold-400/50 hover:bg-gold-400/10 hover:text-gold-200"
                                     aria-label={`View ${order.orderNumber}`}
                                 >
                                     <IconChevronRight size={18} />
@@ -161,16 +161,16 @@ const AddressesView = () => {
 
     return (
         <AccountShell title="Contact Addresses" intro="Saved contact details used for your account and order records.">
-            {error && <p className="mb-5 border border-red-500/30 p-4 text-xs text-red-200 rounded-sm">{error}</p>}
-            <div className="grid gap-4 md:grid-cols-2">
+            {error && <p className="mb-5 rounded-2xl border border-red-500/30 bg-red-950/20 p-4 text-xs text-red-200 backdrop-blur-xl">{error}</p>}
+            <div className="grid gap-5 md:grid-cols-2">
                 {addresses.map((address) => (
-                    <article className={`${panel} relative flex flex-col justify-between`} key={address.id}>
+                    <article className={`${panel} relative flex flex-col justify-between hover:border-gold-400/40 transition`} key={address.id}>
                         <div>
                             <div className="flex items-start justify-between">
-                                <div className="grid size-9 place-items-center rounded-full border border-gold-400/40 bg-obsidian text-gold-400">
+                                <div className="grid size-10 place-items-center rounded-2xl border border-gold-400/30 bg-gold-400/10 text-gold-400 shadow-[0_0_15px_rgba(201,163,91,0.12)]">
                                     <IconMapPin size={18} />
                                 </div>
-                                <span className="text-[9px] uppercase tracking-[0.2em] font-bold text-gold-300 border border-gold-500/30 px-2 py-0.5 rounded-sm">
+                                <span className="glass-pill border-gold-400/30 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.2em] text-gold-300">
                                     {address.isDefault ? 'Default Contact' : address.label}
                                 </span>
                             </div>
@@ -181,11 +181,11 @@ const AddressesView = () => {
                                 <br />
                                 {address.city}, {address.state} {address.postalCode}
                                 <br />
-                                <span className="text-gold-300">Phone: {address.phone}</span>
+                                <span className="mt-1 inline-block text-gold-300 font-medium">Phone: {address.phone}</span>
                             </p>
                         </div>
-                        <div className="mt-6 pt-3 border-t border-gold-500/15 flex items-center justify-between">
-                            <button onClick={() => { setEditingAddress(address); setOpen(true); }} className="text-xs text-gold-300">Edit Address</button>
+                        <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
+                            <button onClick={() => { setEditingAddress(address); setOpen(true); }} className="text-xs font-semibold text-gold-300 hover:text-gold-200 transition">Edit Address</button>
                             <button
                                 onClick={async () => {
                                     if (window.confirm('Remove this saved address?')) {
@@ -206,19 +206,19 @@ const AddressesView = () => {
                 ))}
                 <button
                     onClick={() => setOpen(true)}
-                    className="min-h-[200px] flex flex-col items-center justify-center gap-2 border border-dashed border-gold-500/40 bg-carbon/50 p-6 text-xs font-bold uppercase tracking-[0.2em] text-gold-300 hover:bg-gold-400/10 hover:border-gold-400 transition rounded-sm"
+                    className="flex min-h-[200px] flex-col items-center justify-center gap-2.5 rounded-3xl border border-dashed border-gold-400/30 bg-white/[0.02] p-6 text-xs font-bold uppercase tracking-[0.2em] text-gold-300 transition hover:border-gold-400/60 hover:bg-gold-400/[0.05]"
                 >
-                    <span className="text-2xl text-gold-400">+</span>
+                    <span className="grid size-12 place-items-center rounded-2xl border border-gold-400/30 bg-gold-400/10 text-xl font-bold text-gold-300 shadow-[0_0_15px_rgba(201,163,91,0.15)]">+</span>
                     Add New Contact Address
                 </button>
             </div>
 
             {open && (
-                <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/85 p-5 backdrop-blur-md">
-                    <form ref={addressDialogRef} tabIndex={-1} onSubmit={submit} className="my-8 w-full max-w-xl border border-gold-500/30 bg-carbon p-8 rounded-sm shadow-2xl outline-none" role="dialog" aria-modal="true" aria-labelledby="address-dialog-title">
-                        <div className="flex justify-between border-b border-gold-500/20 pb-4">
-                            <h3 id="address-dialog-title" className="font-display text-2xl text-cream font-bold">{editingAddress ? 'Edit Saved Address' : 'Add Saved Address'}</h3>
-                            <button type="button" onClick={() => { setOpen(false); setEditingAddress(null); }} className="text-xs text-cream/40 hover:text-gold-300">Close</button>
+                <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-obsidian/80 p-5 backdrop-blur-2xl">
+                    <form ref={addressDialogRef} tabIndex={-1} onSubmit={submit} className="my-8 w-full max-w-xl glass-panel-elevated p-8 md:p-10 rounded-3xl shadow-2xl outline-none" role="dialog" aria-modal="true" aria-labelledby="address-dialog-title">
+                        <div className="flex justify-between border-b border-white/10 pb-4">
+                            <h3 id="address-dialog-title" className="font-display text-2xl font-bold text-cream">{editingAddress ? 'Edit Saved Address' : 'Add Saved Address'}</h3>
+                            <button type="button" onClick={() => { setOpen(false); setEditingAddress(null); }} className="rounded-full border border-white/10 px-3 py-1 text-xs text-cream/40 transition hover:border-white/20 hover:text-cream">Close</button>
                         </div>
                         <div className="mt-6 grid gap-4 sm:grid-cols-2">
                             {[
@@ -237,10 +237,10 @@ const AddressesView = () => {
                                 </label>
                             ))}
                         </div>
-                        <label className="mt-5 flex items-center gap-2 text-xs text-cream/60">
-                            <input type="checkbox" name="isDefault" defaultChecked={editingAddress?.isDefault} className="accent-gold-400 size-4" /> Make this my default contact address
+                        <label className="mt-5 flex items-center gap-2.5 text-xs text-cream/70">
+                            <input type="checkbox" name="isDefault" defaultChecked={editingAddress?.isDefault} className="size-4 rounded accent-gold-400" /> Make this my default contact address
                         </label>
-                        <button className="mt-6 h-12 w-full bg-gold-400 text-xs font-bold uppercase tracking-[0.2em] text-obsidian hover:bg-gold-300 rounded-sm transition">
+                        <button className="button-primary mt-6 h-12 w-full">
                             {editingAddress ? 'Update Address' : 'Save Address'}
                         </button>
                     </form>
@@ -277,41 +277,43 @@ const WishlistView = () => {
     return (
         <AccountShell title="Saved wishlist" intro="Pieces you have saved for another look.">
             {error ? (
-                <p className="border border-red-500/30 p-4 text-xs text-red-200" role="alert">{error} Please try again.</p>
+                <p className="rounded-2xl border border-red-500/30 bg-red-950/20 p-4 text-xs text-red-200 backdrop-blur-xl" role="alert">{error} Please try again.</p>
             ) : loading ? (
                 <p className="text-sm text-cream/40">Loading saved wishlist items…</p>
             ) : !products.length ? (
                 <div className={`${panel} py-16 text-center`}>
-                    <div className="mx-auto grid size-14 place-items-center rounded-full border border-gold-500/20 bg-obsidian text-gold-400 mb-4">
-                        <IconHeart size={24} />
+                    <div className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl border border-gold-400/25 bg-gold-400/10 text-gold-400 shadow-[0_0_20px_rgba(201,163,91,0.15)]">
+                        <IconHeart size={26} />
                     </div>
                     <h3 className="font-display text-2xl font-bold text-cream">Your Wishlist is Empty</h3>
-                    <p className="mt-2 text-xs text-cream/50 max-w-sm mx-auto">Save pieces while browsing the collection to review them later.</p>
-                    <Link to="/" className="mt-6 inline-flex items-center gap-2 rounded-sm bg-gold-400 px-6 py-2.5 text-xs font-bold uppercase tracking-wider text-obsidian shadow-md hover:bg-gold-300 transition">
+                    <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-cream/50">Save pieces while browsing the collection to review them later.</p>
+                    <Link to="/" className="button-primary mt-6 inline-flex items-center gap-2">
                         Explore Collection <IconArrowRight size={15} />
                     </Link>
                 </div>
             ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
                     {products.map((product) => (
-                        <div key={product.id} className={`${panel} relative flex flex-col justify-between`}>
+                        <div key={product.id} className={`${panel} relative flex flex-col justify-between hover:border-gold-400/40 transition group`}>
                             <div>
-                                <img
-                                    loading="lazy"
-                                    decoding="async"
-                                    src={product.images[0]?.thumbnailUrl || fallbackImage}
-                                    alt=""
-                                    className="aspect-square w-full object-contain rounded-sm border border-gold-500/20 bg-obsidian"
-                                    onError={(e) => { e.currentTarget.src = fallbackImage; }}
-                                />
-                                <h3 className="mt-3 font-display text-lg font-bold text-cream line-clamp-1">{product.name}</h3>
-                                <p className="mt-1 font-bold text-gold-300 text-sm">{product.variants[0] ? rupees(product.variants[0].pricePaise) : '—'}</p>
+                                <div className="aspect-square w-full overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+                                    <img
+                                        loading="lazy"
+                                        decoding="async"
+                                        src={product.images[0]?.thumbnailUrl || fallbackImage}
+                                        alt=""
+                                        className="size-full object-contain transition duration-500 group-hover:scale-105"
+                                        onError={(e) => { e.currentTarget.src = fallbackImage; }}
+                                    />
+                                </div>
+                                <h3 className="mt-3.5 font-display text-lg font-bold text-cream line-clamp-1">{product.name}</h3>
+                                <p className="mt-1 text-sm font-bold text-gold-300">{product.variants[0] ? rupees(product.variants[0].pricePaise) : '—'}</p>
                             </div>
-                            <div className="mt-4 flex gap-2 pt-3 border-t border-gold-500/15">
-                                <Link to={`/product/${product.slug}`} className="flex-1 bg-gold-400 text-obsidian font-bold text-[10px] uppercase tracking-wider py-2.5 text-center rounded-sm hover:bg-gold-300 transition">
+                            <div className="mt-5 flex gap-2 border-t border-white/10 pt-4">
+                                <Link to={`/product/${product.slug}`} className="button-primary flex-1 py-2.5 text-center text-[10px] tracking-wider uppercase">
                                     View Piece
                                 </Link>
-                                <button onClick={() => toggleWishlist(product.id)} className="p-2.5 text-red-400 border border-red-500/20 rounded-sm hover:bg-red-950/30 transition">
+                                <button onClick={() => toggleWishlist(product.id)} className="rounded-xl border border-red-500/25 bg-red-950/20 p-2.5 text-red-400 transition hover:bg-red-950/40" title="Remove">
                                     <IconTrash size={16} />
                                 </button>
                             </div>
@@ -354,34 +356,34 @@ const ProfileView = () => {
 
     return (
         <AccountShell title="Profile settings" intro="Contact details used for orders and notifications.">
-            <form onSubmit={submit} className={`${panel} max-w-2xl space-y-5`}>
+            <form onSubmit={submit} className="glass-panel max-w-2xl rounded-3xl p-8 md:p-10 space-y-6">
                 {saved && (
-                    <div className="flex items-center gap-2 rounded-sm border border-emerald-500/30 bg-emerald-950/20 p-4 text-xs font-semibold text-emerald-300">
+                    <div className="flex items-center gap-2.5 rounded-2xl border border-emerald-500/30 bg-emerald-950/25 p-4 text-xs font-semibold text-emerald-300 backdrop-blur-xl">
                         <IconCheckCircle size={18} color="#10B981" /> Profile details saved successfully.
                     </div>
                 )}
-                {error && <p className="text-xs text-red-200 border border-red-500/30 bg-red-950/20 p-4 rounded-sm">{error}</p>}
+                {error && <p className="rounded-2xl border border-red-500/30 bg-red-950/25 p-4 text-xs text-red-200 backdrop-blur-xl">{error}</p>}
 
-                <div className="space-y-4">
+                <div className="space-y-5">
                     <label className="block">
-                        <span className="mb-1.5 block text-xs font-semibold text-cream/70">Full Name</span>
+                        <span className="mb-2 block text-xs font-semibold text-cream/70">Full Name</span>
                         <input name="fullName" className={input} defaultValue={profile?.fullName || ''} required />
                     </label>
 
                     <label className="block">
-                        <span className="mb-1.5 block text-xs font-semibold text-cream/70">Email Address</span>
-                        <input className={`${input} opacity-70 cursor-not-allowed`} value={session?.user?.email || profile?.email || ''} readOnly aria-describedby="account-email-help" />
+                        <span className="mb-2 block text-xs font-semibold text-cream/70">Email Address</span>
+                        <input className={`${input} opacity-60 cursor-not-allowed`} value={session?.user?.email || profile?.email || ''} readOnly aria-describedby="account-email-help" />
                         <span id="account-email-help" className="mt-1.5 block text-[10px] text-cream/40">Your login email is managed by your authentication provider.</span>
                     </label>
 
                     <label className="block">
-                        <span className="mb-1.5 block text-xs font-semibold text-cream/70">Mobile Phone Number</span>
+                        <span className="mb-2 block text-xs font-semibold text-cream/70">Mobile Phone Number</span>
                         <input name="phone" className={input} defaultValue={profile?.phone || ''} placeholder="+91 98765 43210" />
                     </label>
                 </div>
 
-                <div className="pt-4 border-t border-gold-500/15">
-                    <button className="h-12 bg-gold-400 px-8 text-xs font-bold uppercase tracking-[0.2em] text-obsidian rounded-sm hover:bg-gold-300 transition shadow-md">
+                <div className="pt-4 border-t border-white/10">
+                    <button className="button-primary h-12 px-8">
                         Save Changes
                     </button>
                 </div>

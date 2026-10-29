@@ -34,73 +34,90 @@ export const OrderConfirmationPage = () => {
     };
 
     return (
-        <div className="min-h-screen bg-obsidian text-cream flex flex-col justify-between font-body">
+        <div className="relative flex min-h-screen flex-col justify-between overflow-hidden bg-obsidian font-body text-cream">
+            {/* Ambient Background Glow Orbs */}
+            <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-96 w-96 -translate-x-1/2 rounded-full bg-emerald-500/10 blur-[120px]" />
+            <div className="pointer-events-none absolute top-1/3 -right-20 -z-10 h-96 w-96 rounded-full bg-gold-400/10 blur-[130px]" />
+
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-4xl flex-1 px-4 py-12 sm:px-8 lg:py-16">
                 {loading ? (
-                    <div className="text-center py-20 text-cream/40 font-mono text-xs">Loading order confirmation details…</div>
+                    <div className="py-20 text-center font-mono text-xs text-cream/40">Loading order confirmation details…</div>
                 ) : error || !order ? (
-                    <div className="border border-red-500/30 bg-red-950/20 p-8 text-center rounded-sm">
+                    <div className="glass-panel rounded-3xl border-red-500/30 bg-red-950/20 p-8 text-center sm:p-12">
                         <h2 className="font-display text-2xl text-red-200">Confirmation Unavailable</h2>
                         <p className="mt-2 text-xs text-cream/60">{error || 'Order detail not found.'}</p>
-                        <Link to="/" className="mt-6 inline-block bg-gold-400 px-6 py-2.5 text-xs font-bold text-obsidian uppercase rounded-sm">Return to Store</Link>
+                        <Link to="/" className="button-primary mt-6 inline-block">Return to Store</Link>
                     </div>
                 ) : (
                     <div className="space-y-8 animate-fadeIn">
-                        {/* Banner */}
-                        <div className="border border-line bg-carbon p-8 text-center sm:p-12">
-                            <div className="mx-auto flex size-16 items-center justify-center border border-emerald-500/40 bg-emerald-950/50 text-emerald-400">
-                                <IconCheckCircle size={36} color="#10B981" />
+                        {/* Hero Banner */}
+                        <div className="glass-panel-elevated relative overflow-hidden rounded-3xl p-8 text-center sm:p-12">
+                            <div className="mx-auto flex size-20 items-center justify-center rounded-3xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.2)]">
+                                <IconCheckCircle size={40} color="#10B981" />
                             </div>
-                            <span className="mt-5 block text-[10px] font-bold uppercase tracking-[0.3em] text-gold-400">
+                            <span className="glass-pill mt-6 inline-block border-gold-400/30 bg-gold-400/10 px-3.5 py-1 text-[10px] font-bold uppercase tracking-[0.28em] text-gold-400">
                                 Payment Verified &amp; Confirmed
                             </span>
-                            <h1 className="mt-2 font-display text-4xl font-semibold text-cream sm:text-5xl">Thank you for your order</h1>
-                            <p className="mt-3 text-xs text-cream/65 leading-relaxed max-w-lg mx-auto">
-                                Order <strong className="text-sm text-gold-300">{order.orderNumber}</strong> has been received. Keep this confirmation for your records.
+                            <h1 className="mt-3 font-display text-4xl font-semibold text-cream sm:text-5xl">Thank you for your order</h1>
+                            <p className="mx-auto mt-3 max-w-lg text-xs leading-relaxed text-cream/65">
+                                Order <strong className="font-mono text-sm text-gold-300">{order.orderNumber}</strong> has been received and is being prepared with artisanal care.
                             </p>
                         </div>
 
-                        {/* Order Snapshot & Timeline */}
+                        {/* Order Snapshot & Details */}
                         <div className="grid gap-6 md:grid-cols-2">
-                            <div className="border border-gold-500/20 bg-carbon p-6 rounded-sm shadow-lg">
-                                <h3 className="font-display text-xl font-bold text-gold-300 border-b border-gold-500/15 pb-3">Order Details</h3>
-                                <div className="mt-4 space-y-2 text-xs text-cream/70">
-                                    <p><strong>Order Reference:</strong> <span className="font-mono text-cream">{order.orderNumber}</span></p>
-                                    <p><strong>Placed Date:</strong> {shortDate(order.createdAt)}</p>
-                                    <p><strong>Payment Status:</strong> <span className="text-emerald-400 font-bold">VERIFIED</span></p>
-                                    <p><strong>Total Amount:</strong> <span className="font-display font-bold text-lg text-gold-300">{rupees(order.totalPaise)}</span></p>
+                            <div className="glass-card rounded-3xl p-6 md:p-8">
+                                <h3 className="border-b border-white/10 pb-3 font-display text-xl font-bold text-gold-300">Order Details</h3>
+                                <div className="mt-4 space-y-2.5 text-xs text-cream/70">
+                                    <p className="flex justify-between">
+                                        <span className="text-cream/50">Reference:</span>
+                                        <span className="font-mono font-bold text-cream">{order.orderNumber}</span>
+                                    </p>
+                                    <p className="flex justify-between">
+                                        <span className="text-cream/50">Placed Date:</span>
+                                        <span className="text-cream">{shortDate(order.createdAt)}</span>
+                                    </p>
+                                    <p className="flex justify-between">
+                                        <span className="text-cream/50">Payment Status:</span>
+                                        <span className="font-bold text-emerald-400">VERIFIED</span>
+                                    </p>
+                                    <p className="flex items-baseline justify-between pt-2 border-t border-white/10">
+                                        <span className="text-cream/50">Total Amount:</span>
+                                        <span className="font-display text-xl font-bold text-gold-300">{rupees(order.totalPaise)}</span>
+                                    </p>
                                 </div>
                                 <button
                                     onClick={handleDownloadInvoice}
-                                    className="mt-6 flex items-center gap-2 rounded-sm border border-gold-500/30 bg-obsidian px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-gold-300 hover:border-gold-400 hover:bg-gold-400 hover:text-obsidian transition w-full justify-center shadow-sm"
+                                    className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl border border-gold-400/30 bg-gold-400/10 py-3 text-xs font-bold uppercase tracking-wider text-gold-300 transition hover:border-gold-400/60 hover:bg-gold-400/20 hover:text-gold-200"
                                 >
-                                    <IconDownload size={16} /> Download Invoice
+                                    <IconDownload size={16} /> Download Tax Invoice
                                 </button>
                             </div>
 
-                            <div className="border border-gold-500/20 bg-carbon p-6 rounded-sm shadow-lg">
-                                <h3 className="font-display text-xl font-bold text-gold-300 border-b border-gold-500/15 pb-3">Order Contact</h3>
-                                <div className="mt-4 space-y-2 text-xs text-cream/70">
-                                    <p><strong>Name:</strong> {order.addressSnapshot?.recipientName}</p>
-                                    <p><strong>Email:</strong> {order.addressSnapshot?.email}</p>
-                                    <p><strong>Phone:</strong> {order.addressSnapshot?.phone}</p>
-                                    <p><strong>Address:</strong> {order.addressSnapshot?.line1}, {order.addressSnapshot?.city}, {order.addressSnapshot?.state} {order.addressSnapshot?.postalCode}</p>
+                            <div className="glass-card rounded-3xl p-6 md:p-8">
+                                <h3 className="border-b border-white/10 pb-3 font-display text-xl font-bold text-gold-300">Delivery Address</h3>
+                                <div className="mt-4 space-y-2 text-xs leading-relaxed text-cream/70">
+                                    <p className="font-bold text-cream text-sm">{order.addressSnapshot?.recipientName}</p>
+                                    <p className="text-cream/60">{order.addressSnapshot?.line1}</p>
+                                    {order.addressSnapshot?.line2 && <p className="text-cream/60">{order.addressSnapshot.line2}</p>}
+                                    <p className="text-cream/60">{order.addressSnapshot?.city}, {order.addressSnapshot?.state} {order.addressSnapshot?.postalCode}</p>
+                                    <p className="pt-2 text-gold-300">Phone: {order.addressSnapshot?.phone}</p>
                                 </div>
                             </div>
                         </div>
 
                         {/* Items Snapshot */}
-                        <div className="border border-gold-500/20 bg-carbon p-6 rounded-sm shadow-lg">
+                        <div className="glass-card rounded-3xl p-6 md:p-8">
                             <h3 className="mb-4 font-display text-xl font-semibold text-cream">Items in this order</h3>
-                            <div className="divide-y divide-gold-500/10">
+                            <div className="divide-y divide-white/10">
                                 {(order.itemsSnapshot || []).map((item, idx) => (
-                                    <div key={idx} className="py-3.5 flex items-center justify-between text-xs">
+                                    <div key={idx} className="flex items-center justify-between py-4 text-xs">
                                         <div>
                                             <p className="font-bold text-cream">{item.productName}</p>
-                                            <p className="text-[10px] text-cream/40 font-mono">SKU: {item.sku} · Qty: {item.quantity}</p>
+                                            <p className="mt-0.5 font-mono text-[10px] text-cream/40">SKU: {item.sku} · Qty: {item.quantity}</p>
                                         </div>
-                                        <span className="font-bold text-gold-300 font-mono">{rupees(item.lineTotalPaise)}</span>
+                                        <span className="font-mono font-bold text-gold-300">{rupees(item.lineTotalPaise)}</span>
                                     </div>
                                 ))}
                             </div>

@@ -4,10 +4,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import { Link } from '../lib/router';
 import Header from '../components/Header';
-import { IconArrowRight, IconMessageCircle } from '../components/Icons';
+import { IconArrowRight, IconMessageCircle, IconSparkles } from '../components/Icons';
 import InstagramReels from '../components/InstagramReels';
 import ProductCard from '../components/ProductCard';
 import StoreFooter from '../components/StoreFooter';
+import TrustBadges from '../components/TrustBadges';
 import { useDailyTheme } from '../hooks/useDailyTheme';
 import { api } from '../lib/api';
 import { Category, Product } from '../types';
@@ -66,53 +67,126 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
             <Header />
 
             <main id="main-content" className="flex-1">
-                <section className="mx-auto grid max-w-[1440px] lg:grid-cols-2">
-                    <div className="flex min-h-[360px] items-center px-6 py-12 sm:min-h-[420px] sm:px-8 lg:min-h-[600px] lg:px-12">
-                        <div className="max-w-xl">
-                            <h1 className="font-display text-4xl font-semibold leading-[0.98] tracking-[-0.03em] text-cream sm:text-6xl lg:text-7xl">
-                                Crockery and kitchenware for every home.
+                {/* Hero Showcase with Glassmorphism Elevation */}
+                <section className="relative mx-auto max-w-[1440px] px-4 pt-4 sm:px-8 sm:pt-8 lg:px-12">
+                    <div className="glass-panel relative grid overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-10 lg:grid-cols-12 lg:items-center lg:gap-12 lg:p-14">
+                        {/* Ambient Gold Radial Orbs */}
+                        <div className="pointer-events-none absolute -right-20 -top-20 size-96 rounded-full bg-gold-400/10 blur-3xl" />
+                        <div className="pointer-events-none absolute -bottom-20 -left-20 size-96 rounded-full bg-amber-500/10 blur-3xl" />
+
+                        {/* Hero Text Column */}
+                        <div className="relative z-10 lg:col-span-7">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-gold-400/30 bg-gold-400/10 px-4 py-1.5 backdrop-blur-md">
+                                <IconSparkles size={14} className="text-gold-300" />
+                                <span className="text-xs font-semibold tracking-wider uppercase text-gold-300">
+                                    Artisanal Tableware & Living
+                                </span>
+                            </div>
+
+                            <h1 className="mt-6 font-display text-4xl font-semibold leading-[1.05] tracking-tight text-cream sm:text-6xl lg:text-7xl">
+                                Crockery & homeware{' '}
+                                <span className="bg-gradient-to-r from-gold-200 via-gold-400 to-amber-200 bg-clip-text text-transparent">
+                                    crafted for elegance.
+                                </span>
                             </h1>
-                            <p className="mt-6 max-w-md text-base leading-7 text-cream/70">
-                                Shop dinner sets, tea sets, serving dishes, canisters and more from our Vengara store.
+
+                            <p className="mt-6 max-w-lg text-base sm:text-lg leading-relaxed text-cream/70">
+                                Crockery and kitchenware for every home. Discover premium dinner sets, tea collections, crystal drinkware, and luxury kitchenware curated from Glockery Home Centre, Vengara.
                             </p>
-                            <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-                                <a href="#collection" className="button-primary gap-3">Shop products <IconArrowRight size={16} /></a>
-                                <a href="https://wa.me/916282000289" target="_blank" rel="noreferrer" className="min-h-11 content-center text-sm font-semibold text-gold-300 hover:text-gold-100">WhatsApp us</a>
+
+                            <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
+                                <a
+                                    href="#collection"
+                                    className="button-primary flex items-center justify-center gap-3 rounded-2xl py-3.5 px-8 text-sm font-semibold shadow-[0_8px_30px_rgba(212,175,55,0.25)]"
+                                >
+                                    Explore Collections <IconArrowRight size={16} />
+                                </a>
+                                <a
+                                    href="https://wa.me/916282000289"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="glass-pill flex items-center justify-center gap-2 rounded-2xl py-3.5 px-6 text-sm font-semibold text-cream/90 hover:border-gold-400/50 hover:bg-gold-400/10 hover:text-white"
+                                >
+                                    <IconMessageCircle size={16} className="text-gold-300" />
+                                    Chat with Glockery on WhatsApp
+                                </a>
+                            </div>
+
+                            {/* Trust Highlights Pills */}
+                            <div className="mt-10 flex flex-wrap items-center gap-3 pt-6 border-t border-white/5">
+                                <span className="glass-pill rounded-full px-3.5 py-1 text-xs text-cream/70">
+                                    ✨ Premium Fine Ceramics
+                                </span>
+                                <span className="glass-pill rounded-full px-3.5 py-1 text-xs text-cream/70">
+                                    🛡️ Shockproof Transit Packing
+                                </span>
+                                <span className="glass-pill rounded-full px-3.5 py-1 text-xs text-cream/70">
+                                    📍 Direct Vengara Storefront
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Hero Visual Column */}
+                        <div className="relative mt-8 lg:mt-0 lg:col-span-5">
+                            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] sm:aspect-[16/11]">
+                                <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-obsidian/60 via-transparent to-transparent" />
+                                <Image
+                                    src={theme.hero}
+                                    alt={theme.heroAlt}
+                                    fill
+                                    priority
+                                    sizes="(min-width: 1024px) 45vw, 100vw"
+                                    className="object-cover transition-transform duration-700 hover:scale-105"
+                                />
+                                <div className="absolute bottom-4 left-4 z-20">
+                                    <span className="glass-pill rounded-xl px-3.5 py-1.5 text-xs font-medium text-cream/90 backdrop-blur-md">
+                                        Signature Showcase
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    <div className="relative min-h-[320px] bg-panel sm:min-h-[420px] lg:min-h-[600px]">
-                        <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-obsidian/55 to-transparent" />
-                        <Image
-                            src={theme.hero}
-                            alt={theme.heroAlt}
-                            fill
-                            priority
-                            sizes="(min-width: 1024px) 50vw, 100vw"
-                            className="relative z-0 object-cover"
-                        />
-                    </div>
                 </section>
 
-                <section id="collection" className="mx-auto max-w-[1440px] px-4 py-14 sm:px-8 lg:px-12 lg:py-20">
-                    <header className="mb-8 flex flex-col gap-5 border-b border-line pb-6 md:flex-row md:items-end md:justify-between">
+                {/* Trust Badges Bar */}
+                <TrustBadges />
+
+                {/* Collections Section */}
+                <section id="collection" className="mx-auto max-w-[1440px] px-4 py-12 sm:px-8 lg:px-12 lg:py-16">
+                    <header className="mb-10 flex flex-col gap-6 border-b border-white/10 pb-8 md:flex-row md:items-end md:justify-between">
                         <div>
-                            <h2 className="font-display text-3xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">Shop our collections</h2>
-                            <p className="mt-2 text-sm text-cream/65">Available online and at Glockery Home Centre, Vengara.</p>
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                                See what’s new in store
+                            </span>
+                            <h2 className="mt-1 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl">
+                                Signature Collections
+                            </h2>
+                            <p className="mt-2 text-sm text-cream/65">
+                                Handcrafted dinnerware and kitchen accents available online and in-store.
+                            </p>
                         </div>
+
                         {categories.length > 0 && (
-                            <div className="flex max-w-full gap-5 overflow-x-auto" aria-label="Filter products">
+                            <div className="flex max-w-full gap-2.5 overflow-x-auto pb-1" aria-label="Filter products">
                                 <button
                                     onClick={() => setActiveCategory('')}
-                                    className={`shrink-0 rounded-full px-4 py-2 text-sm ${!activeCategory ? 'border border-gold-400 bg-gold-500/10 text-cream' : 'border border-transparent text-cream/60 hover:text-cream hover:border-line'}`}
+                                    className={`shrink-0 rounded-full px-5 py-2 text-xs sm:text-sm font-medium transition-all ${
+                                        !activeCategory
+                                            ? 'border border-gold-400/60 bg-gold-400/20 text-gold-200 shadow-[0_0_15px_rgba(212,175,55,0.25)]'
+                                            : 'glass-pill text-cream/65 hover:text-cream hover:border-white/20'
+                                    }`}
                                 >
-                                    All
+                                    All Pieces
                                 </button>
                                 {categories.map((category) => (
                                     <button
                                         key={category.id}
                                         onClick={() => setActiveCategory(category.slug)}
-                                        className={`shrink-0 rounded-full px-4 py-2 text-sm ${activeCategory === category.slug ? 'border border-gold-400 bg-gold-500/10 text-cream' : 'border border-transparent text-cream/60 hover:text-cream hover:border-line'}`}
+                                        className={`shrink-0 rounded-full px-5 py-2 text-xs sm:text-sm font-medium transition-all ${
+                                            activeCategory === category.slug
+                                                ? 'border border-gold-400/60 bg-gold-400/20 text-gold-200 shadow-[0_0_15px_rgba(212,175,55,0.25)]'
+                                                : 'glass-pill text-cream/65 hover:text-cream hover:border-white/20'
+                                        }`}
                                     >
                                         {category.name}
                                     </button>
@@ -122,44 +196,71 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                     </header>
 
                     {loading ? (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-10 lg:grid-cols-4" aria-label="Loading products">
-                            {Array.from({ length: 8 }).map((_, index) => <div key={index} className="aspect-[4/5] animate-pulse bg-panel" />)}
+                        <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4" aria-label="Loading products">
+                            {Array.from({ length: 8 }).map((_, index) => (
+                                <div key={index} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                            ))}
                         </div>
                     ) : error ? (
-                        <div className="border border-line p-8 text-sm text-red-200" role="alert">{error}</div>
+                        <div className="glass-panel rounded-2xl p-8 text-center text-sm text-red-200" role="alert">
+                            {error}
+                        </div>
                     ) : visibleProducts.length ? (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-10 sm:gap-x-6 lg:grid-cols-4 lg:gap-y-14">
-                            {visibleProducts.map((product, index) => <ProductCard key={product.id} product={product} priority={index < 4} />)}
+                        <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8">
+                            {visibleProducts.map((product, index) => (
+                                <ProductCard key={product.id} product={product} priority={index < 4} />
+                            ))}
                         </div>
                     ) : (
-                        <div className="border-y border-line bg-carbon/50 py-16 text-center">
-                            <h3 className="font-display text-3xl text-cream">No products found.</h3>
-                            <button onClick={() => setActiveCategory('')} className="mt-4 text-sm text-gold-300">View all products</button>
+                        <div className="glass-panel rounded-3xl py-16 text-center">
+                            <h3 className="font-display text-2xl text-cream">No products found in this collection.</h3>
+                            <button
+                                onClick={() => setActiveCategory('')}
+                                className="glass-pill mt-4 rounded-full px-5 py-2 text-sm text-gold-300 hover:text-cream"
+                            >
+                                View all collections
+                            </button>
                         </div>
                     )}
 
-                    <div className="mt-12 text-center">
-                        <Link to="/search" className="button-secondary">View all products</Link>
+                    <div className="mt-14 text-center">
+                        <Link
+                            to="/search"
+                            className="glass-pill inline-flex items-center gap-3 rounded-2xl px-8 py-3.5 text-sm font-semibold text-gold-300 transition-all hover:border-gold-400/50 hover:bg-gold-400/10 hover:text-white hover:shadow-[0_0_20px_rgba(212,175,55,0.2)]"
+                        >
+                            Explore Full Catalog <IconArrowRight size={16} />
+                        </Link>
                     </div>
                 </section>
 
+                {/* Social Showcase */}
                 <InstagramReels />
 
+                {/* WhatsApp Concierge Pavilion */}
                 <section className="mx-auto max-w-[1440px] px-4 py-14 sm:px-8 lg:px-12 lg:py-20" aria-labelledby="whatsapp-heading">
-                    <div className="grid gap-7 border-y border-line py-10 md:grid-cols-[1fr_auto] md:items-center md:py-12">
-                        <div className="max-w-2xl">
-                            <p className="text-sm text-cream/60">Need help choosing?</p>
-                            <h2 id="whatsapp-heading" className="mt-2 font-display text-3xl font-semibold tracking-[-0.02em] text-cream sm:text-5xl">Chat with Glockery on WhatsApp</h2>
-                            <p className="mt-4 max-w-xl text-sm leading-7 text-cream/70">Send us a product screenshot or tell us what you need. We’ll help you check availability and place your order.</p>
+                    <div className="glass-panel relative overflow-hidden rounded-3xl border border-white/10 p-8 sm:p-12 md:p-16">
+                        <div className="pointer-events-none absolute -right-20 -top-20 size-96 rounded-full bg-emerald-500/10 blur-3xl" />
+                        <div className="relative z-10 grid gap-8 md:grid-cols-[1fr_auto] md:items-center">
+                            <div className="max-w-2xl">
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-emerald-400">
+                                    Direct Store Concierge
+                                </span>
+                                <h2 id="whatsapp-heading" className="mt-2 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl">
+                                    Need Personalized Assistance?
+                                </h2>
+                                <p className="mt-4 text-sm sm:text-base leading-relaxed text-cream/70">
+                                    Send us a product screenshot, inquire about custom dinner sets, or check instant in-store stock availability. Our team in Vengara responds promptly.
+                                </p>
+                            </div>
+                            <a
+                                href="https://wa.me/916282000289?text=Hi%20Glockery%20Home%20Centre%2C%20I%27d%20like%20help%20choosing%20a%20product."
+                                target="_blank"
+                                rel="noreferrer"
+                                className="button-primary flex items-center justify-center gap-3 rounded-2xl py-4 px-8 text-sm font-semibold shadow-[0_8px_30px_rgba(212,175,55,0.25)] md:min-w-56"
+                            >
+                                <IconMessageCircle size={20} /> Chat on WhatsApp
+                            </a>
                         </div>
-                        <a
-                            href="https://wa.me/916282000289?text=Hi%20Glockery%20Home%20Centre%2C%20I%27d%20like%20help%20choosing%20a%20product."
-                            target="_blank"
-                            rel="noreferrer"
-                            className="button-primary gap-3 md:min-w-52"
-                        >
-                            <IconMessageCircle size={18} /> Chat on WhatsApp
-                        </a>
                     </div>
                 </section>
             </main>
