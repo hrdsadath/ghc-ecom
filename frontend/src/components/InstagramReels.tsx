@@ -61,7 +61,7 @@ const InstagramReels = () => {
             <div className="glass-panel rounded-3xl p-6 sm:p-10">
                 <header className="mb-8 flex items-end justify-between gap-6">
                     <div>
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-600">
                             Social Showcase
                         </span>
                         <h2 id="reels-heading" className="mt-1 font-display text-3xl font-semibold tracking-tight text-cream sm:text-4xl">
@@ -71,14 +71,14 @@ const InstagramReels = () => {
                     <div className="hidden shrink-0 items-center gap-3 sm:flex">
                         <button
                             onClick={() => move(-1)}
-                            className="glass-pill grid size-11 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-400/50 hover:text-gold-200"
+                            className="glass-pill grid size-11 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-500/50 hover:text-gold-700 shadow-sm"
                             aria-label="Show previous Instagram reels"
                         >
                             <IconChevronLeft size={18} />
                         </button>
                         <button
                             onClick={() => move(1)}
-                            className="glass-pill grid size-11 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-400/50 hover:text-gold-200"
+                            className="glass-pill grid size-11 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-500/50 hover:text-gold-700 shadow-sm"
                             aria-label="Show more Instagram reels"
                         >
                             <IconChevronRight size={18} />

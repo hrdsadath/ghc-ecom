@@ -40,12 +40,12 @@ const Header = () => {
                 Skip to content
             </a>
 
-            <aside aria-label="Store announcement" className="relative z-50 border-b border-white/5 bg-carbon/80 py-2 px-4 text-center backdrop-blur-md">
-                <div className="mx-auto flex max-w-[1440px] items-center justify-center gap-3 text-xs tracking-wider text-gold-200/90">
-                    <span className="inline-block size-1.5 rounded-full bg-gold-400 animate-pulse" />
+            <aside aria-label="Store announcement" className="relative z-50 border-b border-gold-500/15 bg-[#f6f3eb]/95 py-2 px-4 text-center backdrop-blur-md">
+                <div className="mx-auto flex max-w-[1440px] items-center justify-center gap-3 text-xs tracking-wider text-gold-700">
+                    <span className="inline-block size-1.5 rounded-full bg-gold-600 animate-pulse" />
                     <span className="font-medium">Luxury Crockery & Dinnerware Collections · Direct Store in Vengara, Malappuram · Express Shipping</span>
-                    <span className="hidden sm:inline text-gold-400/50">|</span>
-                    <a href="tel:+918138003232" className="hidden sm:inline font-semibold text-gold-300 hover:text-gold-100 transition-colors">Concierge: +91 81380 03232</a>
+                    <span className="hidden sm:inline text-gold-600/40">|</span>
+                    <a href="tel:+918138003232" className="hidden sm:inline font-semibold text-gold-700 hover:text-gold-900 transition-colors">Concierge: +91 81380 03232</a>
                 </div>
             </aside>
 
@@ -73,9 +73,9 @@ const Header = () => {
                     </div>
 
                     <nav className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] p-1.5 backdrop-blur-md lg:flex" aria-label="Primary navigation">
-                        <NavLink exact to="/" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30 shadow-[0_0_15px_-3px_rgba(201,163,91,0.25)]">Shop</NavLink>
-                        <NavLink to="/search" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30 shadow-[0_0_15px_-3px_rgba(201,163,91,0.25)]">All Products</NavLink>
-                        <NavLink to="/about" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-200 border border-gold-400/30 shadow-[0_0_15px_-3px_rgba(201,163,91,0.25)]">About Us</NavLink>
+                        <NavLink exact to="/" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-700 border border-gold-400/40 shadow-sm">Shop</NavLink>
+                        <NavLink to="/search" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-700 border border-gold-400/40 shadow-sm">All Products</NavLink>
+                        <NavLink to="/about" className="rounded-full px-5 py-2 text-sm font-medium text-cream/75 transition hover:text-cream hover:bg-white/5" activeClassName="!bg-gold-500/15 !text-gold-700 border border-gold-400/40 shadow-sm">About Us</NavLink>
                     </nav>
 
                     <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
@@ -103,10 +103,10 @@ const Header = () => {
                         </Link>
                         <button 
                             onClick={openCart} 
-                            className="relative flex h-10 items-center gap-2 rounded-full border border-gold-400/30 bg-gold-500/10 px-3.5 text-cream transition hover:border-gold-400/60 hover:bg-gold-500/20 hover:shadow-[0_0_20px_-3px_rgba(201,163,91,0.3)]" 
+                            className="relative flex h-10 items-center gap-2 rounded-full border border-gold-400/40 bg-gold-500/10 px-3.5 text-cream transition hover:border-gold-500/60 hover:bg-gold-500/20 shadow-sm" 
                             aria-label={`Bag with ${itemCount} items`}
                         >
-                            <IconShoppingBag size={18} className="text-gold-300" />
+                            <IconShoppingBag size={18} className="text-gold-700" />
                             <span className="hidden text-xs font-semibold uppercase tracking-wider text-cream/90 sm:inline">Cart</span>
                             {itemCount > 0 && <span className="count-badge">{itemCount > 99 ? '99+' : itemCount}</span>}
                         </button>
@@ -117,7 +117,7 @@ const Header = () => {
                             rel="noreferrer"
                             aria-label="Visit Instagram"
                         >
-                            <img src="/img/blackLogo.png" alt="Instagram" className="h-5 w-5 object-contain invert" />
+                            <img src="/img/blackLogo.png" alt="Instagram" className="h-5 w-5 object-contain" />
                         </a>
                     </div>
                 </div>

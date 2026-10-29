@@ -6,6 +6,7 @@ import Header from '../components/Header';
 import { IconSearch } from '../components/Icons';
 import Pagination from '../components/Pagination';
 import ProductCard from '../components/ProductCard';
+import { ProductCardSkeleton } from '../components/Skeleton';
 import StoreFooter from '../components/StoreFooter';
 import TrustBadges from '../components/TrustBadges';
 import { api } from '../lib/api';
@@ -112,17 +113,17 @@ export const SearchPage = ({ initialData, initialRequest, initialCategories }: S
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-12">
                 {/* Search Bar Header Pavilion */}
-                <div className="glass-panel relative overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-10">
+                <div className="glass-panel relative overflow-hidden rounded-3xl border border-stone-200/80 p-6 sm:p-10">
                     <div className="pointer-events-none absolute -right-20 -top-20 size-80 rounded-full bg-gold-400/10 blur-3xl" />
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-600">
                         Artisanal Catalog
                     </span>
                     <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight sm:text-5xl">
                         {query ? `Search: "${query}"` : 'Explore All Collections'}
                     </h1>
 
-                    <form onSubmit={submitSearch} className="mt-6 flex max-w-2xl items-center rounded-2xl border border-white/15 bg-white/5 px-4 py-1.5 backdrop-blur-md transition-all focus-within:border-gold-400/80 focus-within:shadow-[0_0_20px_rgba(212,175,55,0.25)]" role="search">
-                        <IconSearch className="mr-3 shrink-0 text-gold-300" size={18} />
+                    <form onSubmit={submitSearch} className="mt-6 flex max-w-2xl items-center rounded-2xl border border-stone-300/80 bg-white px-4 py-1.5 shadow-sm transition-all focus-within:border-gold-500/80 focus-within:shadow-md" role="search">
+                        <IconSearch className="mr-3 shrink-0 text-gold-600" size={18} />
                         <label htmlFor="catalogue-search" className="sr-only">Search products</label>
                         <input
                             id="catalogue-search"
@@ -142,20 +143,20 @@ export const SearchPage = ({ initialData, initialRequest, initialCategories }: S
                 </div>
 
                 {/* Filter and Count Bar */}
-                <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:flex-row sm:items-center sm:justify-between backdrop-blur-md">
-                    <p className="text-xs sm:text-sm text-cream/70" aria-live="polite">
+                <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-stone-200/80 bg-white/90 p-4 sm:flex-row sm:items-center sm:justify-between shadow-sm">
+                    <p className="text-xs sm:text-sm text-cream/75" aria-live="polite">
                         {resultLabel}
                     </p>
                     <label className="flex items-center gap-3">
-                        <span className="text-xs uppercase tracking-wider text-cream/50">Filter:</span>
+                        <span className="text-xs uppercase tracking-wider text-cream/60">Filter:</span>
                         <select
                             value={selectedCategory}
                             onChange={(event) => updateUrl({ category: event.target.value, page: '' })}
-                            className="glass-pill rounded-xl px-3.5 py-2 text-xs sm:text-sm text-cream outline-none border-white/10 bg-obsidian/80 cursor-pointer"
+                            className="glass-pill rounded-xl px-3.5 py-2 text-xs sm:text-sm text-cream outline-none border-stone-200/80 bg-white cursor-pointer shadow-sm"
                         >
                             <option value="">All Categories</option>
                             {categories.map((category) => (
-                                <option key={category.id} value={category.slug} className="bg-obsidian text-cream">
+                                <option key={category.id} value={category.slug} className="bg-white text-cream">
                                     {category.name}
                                 </option>
                             ))}
@@ -164,20 +165,20 @@ export const SearchPage = ({ initialData, initialRequest, initialCategories }: S
                 </div>
 
                 {error ? (
-                    <div className="glass-panel mt-8 rounded-2xl border-red-500/30 p-8 text-center text-sm text-red-200" role="alert">
+                    <div className="glass-panel mt-8 rounded-2xl border-red-500/30 p-8 text-center text-sm text-red-600" role="alert">
                         <p>{error}</p>
                         <button
                             type="button"
                             onClick={() => setRetryKey((value) => value + 1)}
-                            className="glass-pill mt-4 rounded-xl px-5 py-2 text-xs font-semibold text-gold-300 hover:text-white"
+                            className="glass-pill mt-4 rounded-xl px-5 py-2 text-xs font-semibold text-gold-700 hover:text-gold-900"
                         >
                             Retry Loading
                         </button>
                     </div>
                 ) : loading ? (
-                    <div className="mt-8 grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4" aria-label="Loading products">
+                    <div className="mt-8 grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8" aria-label="Loading products">
                         {Array.from({ length: 8 }).map((_, index) => (
-                            <div key={index} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                            <ProductCardSkeleton key={index} />
                         ))}
                     </div>
                 ) : products.length ? (

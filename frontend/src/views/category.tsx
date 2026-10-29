@@ -5,6 +5,7 @@ import { Link, useHistory, useLocation, useParams } from '../lib/router';
 import Header from '../components/Header';
 import Pagination from '../components/Pagination';
 import ProductCard from '../components/ProductCard';
+import { ProductCardSkeleton } from '../components/Skeleton';
 import StoreFooter from '../components/StoreFooter';
 import TrustBadges from '../components/TrustBadges';
 import { api } from '../lib/api';
@@ -87,34 +88,34 @@ const CategoryPage = ({ initialData, initialCategoryId, initialPage }: CategoryP
                 </nav>
 
                 {/* Glass Category Hero Header */}
-                <header className="glass-panel relative mb-10 overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-10">
+                <header className="glass-panel relative mb-10 overflow-hidden rounded-3xl border border-stone-200/80 p-6 sm:p-10">
                     <div className="pointer-events-none absolute -right-16 -top-16 size-80 rounded-full bg-gold-400/10 blur-3xl" />
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-600">
                         Curated Collection
                     </span>
                     <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl lg:text-6xl">
                         {categoryTitle}
                     </h1>
-                    <p className="mt-3 text-xs sm:text-sm text-cream/65" aria-live="polite">
+                    <p className="mt-3 text-xs sm:text-sm text-cream/75" aria-live="polite">
                         {loading ? 'Curating collection…' : `Showing ${total} ${total === 1 ? 'curated item' : 'curated items'}`}
                     </p>
                 </header>
 
                 {error ? (
-                    <div className="glass-panel rounded-2xl border-red-500/30 p-8 text-center text-sm text-red-200" role="alert">
+                    <div className="glass-panel rounded-2xl border-red-500/30 p-8 text-center text-sm text-red-600" role="alert">
                         <p>{error}</p>
                         <button
                             type="button"
                             onClick={() => setRetryKey((value) => value + 1)}
-                            className="glass-pill mt-4 rounded-xl px-5 py-2 text-xs font-semibold text-gold-300 hover:text-white"
+                            className="glass-pill mt-4 rounded-xl px-5 py-2 text-xs font-semibold text-gold-700 hover:text-gold-900"
                         >
                             Retry Loading
                         </button>
                     </div>
                 ) : loading ? (
-                    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8">
                         {Array.from({ length: 8 }).map((_, idx) => (
-                            <div key={idx} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                            <ProductCardSkeleton key={idx} />
                         ))}
                     </div>
                 ) : products.length === 0 ? (

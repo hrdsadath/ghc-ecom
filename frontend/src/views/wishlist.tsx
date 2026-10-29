@@ -5,6 +5,7 @@ import { Link } from '../lib/router';
 import Header from '../components/Header';
 import StoreFooter from '../components/StoreFooter';
 import ProductCard from '../components/ProductCard';
+import { ProductCardSkeleton } from '../components/Skeleton';
 import TrustBadges from '../components/TrustBadges';
 import { useWishlist } from '../contexts/WishlistContext';
 import { api } from '../lib/api';
@@ -32,23 +33,23 @@ const WishlistPage = () => {
             <Header />
             <main id="main-content" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-8 sm:px-8 lg:px-12 lg:py-12">
                 {/* Glass Wishlist Header */}
-                <header className="glass-panel relative mb-10 overflow-hidden rounded-3xl border border-white/10 p-6 sm:p-10">
+                <header className="glass-panel relative mb-10 overflow-hidden rounded-3xl border border-stone-200/80 p-6 sm:p-10">
                     <div className="pointer-events-none absolute -right-20 -top-20 size-80 rounded-full bg-gold-400/10 blur-3xl" />
-                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-600">
                         Personal Sanctuary
                     </span>
                     <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl lg:text-6xl">
                         Your Saved Pieces
                     </h1>
-                    <p className="mt-3 max-w-xl text-xs sm:text-sm leading-relaxed text-cream/70">
+                    <p className="mt-3 max-w-xl text-xs sm:text-sm leading-relaxed text-cream/75">
                         Keep the crockery, dinner sets, and kitchenware that caught your eye saved for your next order.
                     </p>
                 </header>
 
                 {loading ? (
-                    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8">
                         {Array.from({ length: 4 }).map((_, idx) => (
-                            <div key={idx} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                            <ProductCardSkeleton key={idx} />
                         ))}
                     </div>
                 ) : !products.length ? (

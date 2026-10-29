@@ -16,7 +16,7 @@ const CartDrawer = () => {
         <div className="fixed inset-0 z-50">
             {/* Backdrop with frosted blur */}
             <button
-                className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity"
+                className="absolute inset-0 bg-stone-900/40 backdrop-blur-sm transition-opacity"
                 onClick={closeCart}
                 aria-label="Close bag"
             />
@@ -25,15 +25,15 @@ const CartDrawer = () => {
             <aside
                 ref={dialogRef}
                 tabIndex={-1}
-                className="absolute right-0 top-0 flex h-full w-full max-w-lg flex-col border-l border-white/10 bg-[#0d0d10]/90 backdrop-blur-2xl shadow-[-20px_0_60px_rgba(0,0,0,0.85)] outline-none animate-slide-left"
+                className="absolute right-0 top-0 flex h-full w-full max-w-lg flex-col border-l border-gold-500/20 bg-white/95 backdrop-blur-2xl shadow-[-16px_0_50px_rgba(26,24,21,0.12)] outline-none animate-slide-left"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="bag-title"
             >
                 {/* Header */}
-                <header className="flex items-center justify-between border-b border-white/10 px-6 py-5 sm:px-8">
+                <header className="flex items-center justify-between border-b border-stone-200/80 bg-stone-50/70 px-6 py-5 sm:px-8">
                     <div>
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gold-400/80">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gold-600">
                             Shopping Selection
                         </span>
                         <h2 id="bag-title" className="font-display text-2xl sm:text-3xl font-semibold text-cream">
@@ -41,7 +41,7 @@ const CartDrawer = () => {
                         </h2>
                     </div>
                     <button
-                        className="glass-pill grid size-10 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-400/50 hover:text-gold-200"
+                        className="glass-pill grid size-10 place-items-center rounded-full text-cream/70 transition-all hover:border-gold-500/50 hover:text-gold-600 shadow-sm"
                         onClick={closeCart}
                         aria-label="Close"
                     >
@@ -82,9 +82,9 @@ const CartDrawer = () => {
                         items.map((item) => (
                             <article
                                 key={item.id}
-                                className="glass-card group flex items-start gap-4 rounded-2xl p-3.5 sm:p-4 border border-white/5 transition-all hover:border-gold-400/30"
+                                className="glass-card group flex items-start gap-4 rounded-2xl p-3.5 sm:p-4 border border-stone-200/80 transition-all hover:border-gold-500/40 hover:shadow-md"
                             >
-                                <div className="relative aspect-[4/5] w-20 shrink-0 overflow-hidden rounded-xl border border-white/5 bg-obsidian/60 p-2">
+                                <div className="relative aspect-[4/5] w-20 shrink-0 overflow-hidden rounded-xl border border-stone-200/60 bg-white p-2">
                                     <img
                                         loading="lazy"
                                         decoding="async"
@@ -99,7 +99,7 @@ const CartDrawer = () => {
                                             <h3 className="font-display text-base font-medium text-cream line-clamp-1">
                                                 {item.productName}
                                             </h3>
-                                            <p className="mt-0.5 text-xs text-cream/50">
+                                            <p className="mt-0.5 text-xs text-cream/60">
                                                 {item.optionLabel || item.color || item.sku}
                                             </p>
                                         </div>
@@ -108,17 +108,17 @@ const CartDrawer = () => {
                                             onClick={() => {
                                                 void removeItem(item.variantId).catch(() => undefined);
                                             }}
-                                            className="text-xs text-cream/40 transition hover:text-red-300"
+                                            className="text-xs text-cream/40 transition hover:text-red-600 font-medium"
                                         >
                                             Remove
                                         </button>
                                     </div>
 
                                     <div className="mt-3 flex items-center justify-between">
-                                        <div className="glass-pill flex h-8 items-center rounded-full px-1 border-white/10 bg-white/5">
+                                        <div className="glass-pill flex h-8 items-center rounded-full px-1 border-stone-200/80 bg-stone-100/80">
                                             <button
                                                 disabled={loading}
-                                                className="grid size-7 place-items-center rounded-full text-cream/70 hover:bg-white/10 hover:text-gold-300 disabled:opacity-40"
+                                                className="grid size-7 place-items-center rounded-full text-cream/70 hover:bg-white hover:text-gold-600 disabled:opacity-40"
                                                 onClick={() => {
                                                     void updateQuantity(item.variantId, item.quantity - 1).catch(() => undefined);
                                                 }}
@@ -131,7 +131,7 @@ const CartDrawer = () => {
                                             </span>
                                             <button
                                                 disabled={loading}
-                                                className="grid size-7 place-items-center rounded-full text-cream/70 hover:bg-white/10 hover:text-gold-300 disabled:opacity-40"
+                                                className="grid size-7 place-items-center rounded-full text-cream/70 hover:bg-white hover:text-gold-600 disabled:opacity-40"
                                                 onClick={() => {
                                                     void updateQuantity(item.variantId, item.quantity + 1).catch(() => undefined);
                                                 }}
@@ -152,11 +152,11 @@ const CartDrawer = () => {
 
                 {/* Footer with Checkout CTA */}
                 {items.length > 0 && (
-                    <footer className="border-t border-white/10 bg-[#0d0d10]/95 px-6 py-6 sm:px-8">
+                    <footer className="border-t border-stone-200/80 bg-[#faf8f5]/95 px-6 py-6 sm:px-8 backdrop-blur-xl">
                         <div className="mb-5 flex items-end justify-between">
                             <div>
-                                <span className="text-xs text-cream/60">Estimated Total</span>
-                                <small className="mt-0.5 block text-[10px] text-cream/40">
+                                <span className="text-xs text-cream/70 font-medium">Estimated Total</span>
+                                <small className="mt-0.5 block text-[10px] text-cream/50">
                                     Taxes included & free pickup available
                                 </small>
                             </div>
@@ -167,7 +167,7 @@ const CartDrawer = () => {
                         <Link
                             to="/checkout"
                             onClick={closeCart}
-                            className="button-primary flex h-13 w-full items-center justify-center gap-3 rounded-2xl text-sm font-semibold shadow-[0_8px_30px_rgba(212,175,55,0.25)]"
+                            className="button-primary flex h-13 w-full items-center justify-center gap-3 rounded-2xl text-sm font-semibold shadow-[0_8px_30px_rgba(26,24,21,0.25)]"
                         >
                             Proceed to Checkout <IconArrowRight size={17} />
                         </Link>

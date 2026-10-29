@@ -7,6 +7,7 @@ import Header from '../components/Header';
 import { IconArrowRight, IconMessageCircle, IconSparkles } from '../components/Icons';
 import InstagramReels from '../components/InstagramReels';
 import ProductCard from '../components/ProductCard';
+import { ProductCardSkeleton } from '../components/Skeleton';
 import StoreFooter from '../components/StoreFooter';
 import TrustBadges from '../components/TrustBadges';
 import { useDailyTheme } from '../hooks/useDailyTheme';
@@ -85,19 +86,19 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
 
                             <h1 className="mt-6 font-display text-4xl font-semibold leading-[1.05] tracking-tight text-cream sm:text-6xl lg:text-7xl">
                                 Crockery & homeware{' '}
-                                <span className="bg-gradient-to-r from-gold-200 via-gold-400 to-amber-200 bg-clip-text text-transparent">
+                                <span className="bg-gradient-to-r from-[#9e7627] via-[#c99738] to-[#795514] bg-clip-text text-transparent">
                                     crafted for elegance.
                                 </span>
                             </h1>
 
-                            <p className="mt-6 max-w-lg text-base sm:text-lg leading-relaxed text-cream/70">
+                            <p className="mt-6 max-w-lg text-base sm:text-lg leading-relaxed text-cream/75">
                                 Crockery and kitchenware for every home. Discover premium dinner sets, tea collections, crystal drinkware, and luxury kitchenware curated from Glockery Home Centre, Vengara.
                             </p>
 
                             <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center">
                                 <a
                                     href="#collection"
-                                    className="button-primary flex items-center justify-center gap-3 rounded-2xl py-3.5 px-8 text-sm font-semibold shadow-[0_8px_30px_rgba(212,175,55,0.25)]"
+                                    className="button-primary flex items-center justify-center gap-3 rounded-2xl py-3.5 px-8 text-sm font-semibold shadow-[0_8px_30px_rgba(26,24,21,0.25)]"
                                 >
                                     Explore Collections <IconArrowRight size={16} />
                                 </a>
@@ -105,9 +106,9 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                                     href="https://wa.me/916282000289"
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="glass-pill flex items-center justify-center gap-2 rounded-2xl py-3.5 px-6 text-sm font-semibold text-cream/90 hover:border-gold-400/50 hover:bg-gold-400/10 hover:text-white"
+                                    className="glass-pill flex items-center justify-center gap-2 rounded-2xl py-3.5 px-6 text-sm font-semibold text-cream/90 hover:border-gold-500/50 hover:bg-gold-500/10 hover:text-gold-900 shadow-sm"
                                 >
-                                    <IconMessageCircle size={16} className="text-gold-300" />
+                                    <IconMessageCircle size={16} className="text-gold-600" />
                                     Chat with Glockery on WhatsApp
                                 </a>
                             </div>
@@ -128,8 +129,8 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
 
                         {/* Hero Visual Column */}
                         <div className="relative mt-8 lg:mt-0 lg:col-span-5">
-                            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] sm:aspect-[16/11]">
-                                <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-obsidian/60 via-transparent to-transparent" />
+                            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-white/10 shadow-[0_20px_50px_rgba(35,30,24,0.12)] sm:aspect-[16/11]">
+                                <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-obsidian/40 via-transparent to-transparent" />
                                 <Image
                                     src={theme.hero}
                                     alt={theme.heroAlt}
@@ -139,7 +140,7 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                                     className="object-cover transition-transform duration-700 hover:scale-105"
                                 />
                                 <div className="absolute bottom-4 left-4 z-20">
-                                    <span className="glass-pill rounded-xl px-3.5 py-1.5 text-xs font-medium text-cream/90 backdrop-blur-md">
+                                    <span className="glass-pill rounded-xl px-3.5 py-1.5 text-xs font-medium text-cream/90 backdrop-blur-md shadow-sm">
                                         Signature Showcase
                                     </span>
                                 </div>
@@ -153,15 +154,15 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
 
                 {/* Collections Section */}
                 <section id="collection" className="mx-auto max-w-[1440px] px-4 py-12 sm:px-8 lg:px-12 lg:py-16">
-                    <header className="mb-10 flex flex-col gap-6 border-b border-white/10 pb-8 md:flex-row md:items-end md:justify-between">
+                    <header className="mb-10 flex flex-col gap-6 border-b border-stone-200/80 pb-8 md:flex-row md:items-end md:justify-between">
                         <div>
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-400/80">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-gold-600">
                                 See what’s new in store
                             </span>
                             <h2 className="mt-1 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl">
                                 Signature Collections
                             </h2>
-                            <p className="mt-2 text-sm text-cream/65">
+                            <p className="mt-2 text-sm text-cream/75">
                                 Handcrafted dinnerware and kitchen accents available online and in-store.
                             </p>
                         </div>
@@ -172,8 +173,8 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                                     onClick={() => setActiveCategory('')}
                                     className={`shrink-0 rounded-full px-5 py-2 text-xs sm:text-sm font-medium transition-all ${
                                         !activeCategory
-                                            ? 'border border-gold-400/60 bg-gold-400/20 text-gold-200 shadow-[0_0_15px_rgba(212,175,55,0.25)]'
-                                            : 'glass-pill text-cream/65 hover:text-cream hover:border-white/20'
+                                            ? 'border border-gold-500/60 bg-gold-500/15 text-gold-700 shadow-sm'
+                                            : 'glass-pill text-cream/70 hover:text-cream hover:border-gold-500/30'
                                     }`}
                                 >
                                     All Pieces
@@ -184,8 +185,8 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                                         onClick={() => setActiveCategory(category.slug)}
                                         className={`shrink-0 rounded-full px-5 py-2 text-xs sm:text-sm font-medium transition-all ${
                                             activeCategory === category.slug
-                                                ? 'border border-gold-400/60 bg-gold-400/20 text-gold-200 shadow-[0_0_15px_rgba(212,175,55,0.25)]'
-                                                : 'glass-pill text-cream/65 hover:text-cream hover:border-white/20'
+                                                ? 'border border-gold-500/60 bg-gold-500/15 text-gold-700 shadow-sm'
+                                                : 'glass-pill text-cream/70 hover:text-cream hover:border-gold-500/30'
                                         }`}
                                     >
                                         {category.name}
@@ -196,13 +197,13 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                     </header>
 
                     {loading ? (
-                        <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4" aria-label="Loading products">
+                        <div className="grid grid-cols-2 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8" aria-label="Loading products">
                             {Array.from({ length: 8 }).map((_, index) => (
-                                <div key={index} className="glass-card aspect-[4/5] animate-pulse rounded-2xl bg-white/[0.02]" />
+                                <ProductCardSkeleton key={index} />
                             ))}
                         </div>
                     ) : error ? (
-                        <div className="glass-panel rounded-2xl p-8 text-center text-sm text-red-200" role="alert">
+                        <div className="glass-panel rounded-2xl p-8 text-center text-sm text-red-600" role="alert">
                             {error}
                         </div>
                     ) : visibleProducts.length ? (
@@ -216,7 +217,7 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                             <h3 className="font-display text-2xl text-cream">No products found in this collection.</h3>
                             <button
                                 onClick={() => setActiveCategory('')}
-                                className="glass-pill mt-4 rounded-full px-5 py-2 text-sm text-gold-300 hover:text-cream"
+                                className="glass-pill mt-4 rounded-full px-5 py-2 text-sm text-gold-600 hover:text-gold-800"
                             >
                                 View all collections
                             </button>
@@ -226,7 +227,7 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                     <div className="mt-14 text-center">
                         <Link
                             to="/search"
-                            className="glass-pill inline-flex items-center gap-3 rounded-2xl px-8 py-3.5 text-sm font-semibold text-gold-300 transition-all hover:border-gold-400/50 hover:bg-gold-400/10 hover:text-white hover:shadow-[0_0_20px_rgba(212,175,55,0.2)]"
+                            className="glass-pill inline-flex items-center gap-3 rounded-2xl px-8 py-3.5 text-sm font-semibold text-gold-700 transition-all hover:border-gold-500/50 hover:bg-gold-500/10 hover:text-gold-900 shadow-sm"
                         >
                             Explore Full Catalog <IconArrowRight size={16} />
                         </Link>
@@ -242,13 +243,13 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                         <div className="pointer-events-none absolute -right-20 -top-20 size-96 rounded-full bg-emerald-500/10 blur-3xl" />
                         <div className="relative z-10 grid gap-8 md:grid-cols-[1fr_auto] md:items-center">
                             <div className="max-w-2xl">
-                                <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-emerald-400">
+                                <span className="text-[11px] font-semibold uppercase tracking-[0.25em] text-emerald-700">
                                     Direct Store Concierge
                                 </span>
                                 <h2 id="whatsapp-heading" className="mt-2 font-display text-3xl font-semibold tracking-tight text-cream sm:text-5xl">
                                     Need Personalized Assistance?
                                 </h2>
-                                <p className="mt-4 text-sm sm:text-base leading-relaxed text-cream/70">
+                                <p className="mt-4 text-sm sm:text-base leading-relaxed text-cream/75">
                                     Send us a product screenshot, inquire about custom dinner sets, or check instant in-store stock availability. Our team in Vengara responds promptly.
                                 </p>
                             </div>
@@ -256,7 +257,7 @@ const HomePage = ({ initialProducts, initialCategories }: HomePageProps) => {
                                 href="https://wa.me/916282000289?text=Hi%20Glockery%20Home%20Centre%2C%20I%27d%20like%20help%20choosing%20a%20product."
                                 target="_blank"
                                 rel="noreferrer"
-                                className="button-primary flex items-center justify-center gap-3 rounded-2xl py-4 px-8 text-sm font-semibold shadow-[0_8px_30px_rgba(212,175,55,0.25)] md:min-w-56"
+                                className="button-primary flex items-center justify-center gap-3 rounded-2xl py-4 px-8 text-sm font-semibold shadow-[0_8px_30px_rgba(26,24,21,0.25)] md:min-w-56"
                             >
                                 <IconMessageCircle size={20} /> Chat on WhatsApp
                             </a>
